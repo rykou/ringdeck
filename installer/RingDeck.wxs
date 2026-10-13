@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Product Id="*" Name="RingDeck" Language="1033" Version="$(var.Version)" Manufacturer="muryl"
+           UpgradeCode="5B1E7C3A-0C5E-4E0B-9C0F-7A6D1E2B9F44">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" InstallPrivileges="limited" Platform="x64"
+             Description="Radial rings of macros, snippets and shortcuts" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of RingDeck is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="RingDeckIcon.ico" SourceFile="ringdeck.ico" />
+    <Property Id="ARPPRODUCTICON" Value="RingDeckIcon.ico" />
+    <Property Id="OPT_STARTMENU" Value="1" />
+    <Property Id="OPT_AUTOSTART" Value="1" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch RingDeck" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#RingDeckExe]" />
+    <WixVariable Id="WixUIBannerBmp" Value="banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="dialog.bmp" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsDir" Name="Programs">
+          <Directory Id="INSTALLFOLDER" Name="RingDeck">
+            <Component Id="AppExe" Guid="9D3C6A52-1F0B-4B7E-8E55-3C2A7D914B10" Win64="yes">
+              <File Id="RingDeckExe" Source="$(var.BinDir)\RingDeck.exe" />
+              <RegistryValue Root="HKCU" Key="Software\RingDeck" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+              <RemoveFolder Id="RmInstallFolder" On="uninstall" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Component Id="StartMenuShortcut" Guid="*">
+          <Condition>OPT_STARTMENU</Condition>
+          <Shortcut Id="StartMenuLnk" Name="RingDeck" Target="[INSTALLFOLDER]RingDeck.exe"
+                    WorkingDirectory="INSTALLFOLDER" Icon="RingDeckIcon.ico" />
+          <RegistryValue Root="HKCU" Key="Software\RingDeck" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+      <Directory Id="DesktopFolder">
+        <Component Id="DesktopShortcut" Guid="*">
+          <Condition>OPT_DESKTOP</Condition>
+          <Shortcut Id="DesktopLnk" Name="RingDeck" Target="[INSTALLFOLDER]RingDeck.exe"
+                    WorkingDirectory="INSTALLFOLDER" Icon="RingDeckIcon.ico" />
+          <RegistryValue Root="HKCU" Key="Software\RingDeck" Name="Desktop" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </Directory>
+
+    <util:CloseApplication Id="CloseRingDeck" Target="RingDeck.exe" TerminateProcess="0" RebootPrompt="no" />
+
+    <Feature Id="Main" Title="RingDeck" Level="1">
+      <ComponentRef Id="AppExe" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+    <CustomAction Id="LaunchApp" BinaryKey="WixCA" DllEntry="WixShellExec" Impersonate="yes" />
+    <CustomAction Id="SetAutostart" FileKey="RingDeckExe" ExeCommand="--set-autostart on" Return="ignore"
+                  Impersonate="yes" Execute="immediate" />
+    <CustomAction Id="ClearAutostart" Directory="TARGETDIR" Return="ignore" Impersonate="yes" Execute="immediate"
+                  ExeCommand="&quot;[SystemFolder]reg.exe&quot; delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v RingDeck /f" />
+    <InstallExecuteSequence>
+      <Custom Action="SetAutostart" After="InstallFinalize">OPT_AUTOSTART AND NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
+      <Custom Action="ClearAutostart" After="InstallFinalize">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+
+    <UI Id="RingDeckUI">
+      <UIRef Id="WixUI_InstallDir" />
+      <Dialog Id="OptionsDlg" Width="370" Height="270" Title="RingDeck Setup">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Title}Options" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="Choose how RingDeck is set up." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="StartMenu" Type="CheckBox" X="25" Y="70" Width="300" Height="17" Property="OPT_STARTMENU"
+                 CheckBoxValue="1" Text="Add RingDeck to the Start Menu" />
+        <Control Id="Desktop" Type="CheckBox" X="25" Y="92" Width="300" Height="17" Property="OPT_DESKTOP"
+                 CheckBoxValue="1" Text="Create a desktop shortcut" />
+        <Control Id="Autostart" Type="CheckBox" X="25" Y="114" Width="300" Height="17" Property="OPT_AUTOSTART"
+                 CheckBoxValue="1" Text="Start RingDeck when I sign in to Windows" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="&amp;Back">
+          <Publish Event="NewDialog" Value="InstallDirDlg">1</Publish>
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="&amp;Next">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+        </Control>
+      </Dialog>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="5">NOT Installed</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="5">1</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="OptionsDlg" Order="5">WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID="1"</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="OptionsDlg" Order="5">NOT Installed</Publish>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApp">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed</Publish>
+    </UI>
+  </Product>
+</Wix>

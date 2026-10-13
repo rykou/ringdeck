@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="RingDeck.Core/RingDeck.Core.csproj" />
+  <Project Path="RingDeck.Core.Tests/RingDeck.Core.Tests.csproj" />
+  <Project Path="RingDeck.Windows/RingDeck.Windows.csproj" />
+  <Project Path="RingDeck.App/RingDeck.App.csproj" />
+</Solution>
