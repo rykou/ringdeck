@@ -1,0 +1,7 @@
+<Window x:Class="RingDeck.App.EditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RingDeck" Width="1180" Height="740" MinWidth="980" MinHeight="600"
+        WindowStartupLocation="CenterScreen">
+  <Grid />
+</Window>

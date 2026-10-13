@@ -27,8 +27,9 @@ wintemp="$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %TEMP%' 2>/dev/null | tr -d 
 
 if [ "${1:-}" = run ]; then
   dev="$wintemp/ringdeck-dev"
-  mkdir -p "$dev" && cp publish/RingDeck.exe "$dev/"
-  (cd "$dev" && cmd.exe /c start "" RingDeck.exe >/dev/null 2>&1 </dev/null)
+  mkdir -p "$dev" && cp publish/RingDeck.exe "$dev/" || { echo "could not replace $dev/RingDeck.exe; is RingDeck still running?" >&2; exit 1; }
+  # Start-Process detaches; `cmd /c start` keeps the WSL interop call open until the app exits.
+  (cd /mnt/c && powershell.exe -NoProfile -Command "Start-Process '$(wslpath -w "$dev/RingDeck.exe")'" >/dev/null 2>&1 </dev/null)
   echo "started $dev/RingDeck.exe"
   exit 0
 fi
