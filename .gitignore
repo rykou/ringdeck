@@ -6,3 +6,4 @@ installer/*.bmp
 *.user
 __pycache__/
 .superpowers/
+brag-output*/
