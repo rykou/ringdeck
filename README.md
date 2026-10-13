@@ -2,6 +2,8 @@
 
 Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut, flick toward a slice, release.
 
+![RingDeck: opening rings with a shortcut, then editing a slice](docs/demo.gif)
+
 - Any number of rings, each on its own global shortcut (keyboard or mouse button).
 - Slices paste text, play keystroke macros, open apps, files and links, or open another ring.
 - Editor with live preview; settings in `%APPDATA%\RingDeck\config.json`.
