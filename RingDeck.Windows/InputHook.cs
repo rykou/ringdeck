@@ -19,6 +19,13 @@ public sealed class InputHook : IDisposable
 
     /// <summary>(virtual key, is down) => true to swallow the event.</summary>
     public Func<int, bool, bool>? Key { get; set; }
+    /// <summary>Receives exceptions thrown by the Key callback (they must not escape into the hook chain).</summary>
+    public Action<Exception>? Error { get; set; }
+
+    readonly HashSet<int> _heldModifiers = new();
+
+    /// <summary>True while the user is physically holding this modifier key, judged from real (not injected) events.</summary>
+    public bool IsPhysicallyDown(int vk) { lock (_heldModifiers) return _heldModifiers.Contains(vk); }
 
     public void Install()
     {
@@ -39,8 +46,13 @@ public sealed class InputHook : IDisposable
         {
             var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
             var message = (int)wParam;
-            if ((info.Flags & LLKHF_INJECTED) == 0 && Report((int)info.Vk, message is WM_KEYDOWN or WM_SYSKEYDOWN))
-                return 1;
+            if ((info.Flags & LLKHF_INJECTED) == 0)
+            {
+                var down = message is WM_KEYDOWN or WM_SYSKEYDOWN;
+                if (RingDeck.Core.KeyNames.IsModifier((int)info.Vk))
+                    lock (_heldModifiers) { if (down) _heldModifiers.Add((int)info.Vk); else _heldModifiers.Remove((int)info.Vk); }
+                if (Report((int)info.Vk, down)) return 1;
+            }
         }
         return CallNextHookEx(_keyboard, code, wParam, lParam);
     }
@@ -67,7 +79,7 @@ public sealed class InputHook : IDisposable
     bool Report(int vk, bool down)
     {
         try { return Key?.Invoke(vk, down) ?? false; }
-        catch { return false; }   // an exception must never escape into the hook chain
+        catch (Exception ex) { Error?.Invoke(ex); return false; }   // an exception must never escape into the hook chain
     }
 
     public void Dispose()

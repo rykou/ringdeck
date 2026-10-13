@@ -66,6 +66,21 @@ public class ConfigStoreTests : IDisposable
     }
 
     [Fact]
+    public void RecoveredConfigSurvivesARestart()
+    {
+        var store = new ConfigStore(_dir);
+        store.Save(new AppConfig { Rings = { new Ring { Name = "good" } } });
+        store.Save(new AppConfig { Rings = { new Ring { Name = "newer" } } });
+        File.WriteAllText(store.ConfigPath, "{ not json");
+        Assert.True(store.Load().Recovered);
+        var second = new ConfigStore(_dir).Load();
+        Assert.False(second.FirstRun);
+        Assert.False(second.Recovered);
+        Assert.Equal("good", Assert.Single(second.Config.Rings).Name);
+        Assert.Contains("\"good\"", File.ReadAllText(store.BackupPath));
+    }
+
+    [Fact]
     public void CorruptFileWithoutBackupGivesEmptyConfig()
     {
         Directory.CreateDirectory(_dir);

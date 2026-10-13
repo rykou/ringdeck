@@ -6,6 +6,8 @@ public interface IInputSender
     bool CanSendToForeground();
     /// <summary>Releases modifier keys the user is still physically holding.</summary>
     void ReleaseModifiers();
+    /// <summary>Presses again the modifiers ReleaseModifiers let go, if the user is still holding them.</summary>
+    void RestoreModifiers();
     void SendCombo(Shortcut combo);
     void SendText(string text);
 }

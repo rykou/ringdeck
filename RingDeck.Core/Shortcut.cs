@@ -60,7 +60,8 @@ public static class KeyNames
             ("Backspace", 0x08), ("Tab", 0x09), ("Enter", 0x0D), ("Pause", 0x13), ("CapsLock", 0x14), ("Esc", 0x1B),
             ("Space", 0x20), ("PageUp", 0x21), ("PageDown", 0x22), ("End", 0x23), ("Home", 0x24),
             ("Left", 0x25), ("Up", 0x26), ("Right", 0x27), ("Down", 0x28), ("PrintScreen", 0x2C),
-            ("Insert", 0x2D), ("Delete", 0x2E), ("Menu", 0x5D),
+            ("Insert", 0x2D), ("Delete", 0x2E), ("Menu", 0x5D), ("NumLock", 0x90), ("ScrollLock", 0x91),
+            ("AbntSlash", 0xC1), ("AbntNumpadDot", 0xC2), ("IsoBackslash", 0xE2),
             ("NumpadMultiply", 0x6A), ("NumpadAdd", 0x6B), ("NumpadSubtract", 0x6D), ("NumpadDecimal", 0x6E),
             ("NumpadDivide", 0x6F),
             ("Semicolon", 0xBA), ("Plus", 0xBB), ("Comma", 0xBC), ("Minus", 0xBD), ("Period", 0xBE), ("Slash", 0xBF),
@@ -74,7 +75,14 @@ public static class KeyNames
 
     static void Add(string name, int vk) { ByName[name] = vk; ByVk[vk] = name; }
 
-    public static bool TryGetVk(string name, out int vk) => ByName.TryGetValue(name, out vk);
+    public static bool TryGetVk(string name, out int vk)
+    {
+        if (ByName.TryGetValue(name, out vk)) return true;
+        // Keys with no friendly name are written as Key0xNN, the form NameOf produces.
+        return name.StartsWith("Key0x", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(name.AsSpan(5), System.Globalization.NumberStyles.HexNumber, null, out vk)
+            && vk is > 0 and < 0xFF;
+    }
 
     public static string NameOf(int vk) => ByVk.TryGetValue(vk, out var name) ? name : $"Key0x{vk:X2}";
 

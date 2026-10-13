@@ -11,6 +11,12 @@ public sealed class InputSender : IInputSender
     const int MaskVk = 0xE8;   // unassigned key: stops a lone Alt or Win release from opening a menu
     static readonly int[] ModifierVks = { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C };
 
+    readonly Func<int, bool>? _physicallyDown;
+    List<int> _released = new();
+
+    /// <param name="physicallyDown">Tells whether the user is really holding a modifier key (from the input hook).</param>
+    public InputSender(Func<int, bool>? physicallyDown = null) => _physicallyDown = physicallyDown;
+
     static bool IsDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
 
     /// <summary>Modifier keys held right now, read from the OS.</summary>
@@ -28,7 +34,7 @@ public sealed class InputSender : IInputSender
         if (process == IntPtr.Zero) return Marshal.GetLastWin32Error() != 5;   // access denied: a higher-privilege process
         try
         {
-            if (!OpenProcessToken(process, 0x0008 /* TOKEN_QUERY */, out var token)) return true;
+            if (!OpenProcessToken(process, 0x0008 /* TOKEN_QUERY */, out var token)) return Marshal.GetLastWin32Error() != 5;
             try { return !(GetTokenInformation(token, 20 /* TokenElevation */, out var elevated, 4, out _) && elevated != 0); }
             finally { CloseHandle(token); }
         }
@@ -38,9 +44,23 @@ public sealed class InputSender : IInputSender
     public void ReleaseModifiers()
     {
         var held = ModifierVks.Where(IsDown).ToList();
+        _released = held;
         if (held.Count == 0) return;
         var inputs = new List<INPUT> { Key(MaskVk, false), Key(MaskVk, true) };
         inputs.AddRange(held.Select(vk => Key(vk, true)));
+        Send(inputs);
+    }
+
+    /// <summary>Gives back the modifiers ReleaseModifiers let go, so a user who keeps Ctrl+Alt held can press the
+    /// ring's key again straight away.</summary>
+    public void RestoreModifiers()
+    {
+        var again = _released.Where(vk => _physicallyDown?.Invoke(vk) == true).ToList();
+        _released = new();
+        if (again.Count == 0) return;
+        var inputs = again.Select(vk => Key(vk, false)).ToList();
+        inputs.Add(Key(MaskVk, false));
+        inputs.Add(Key(MaskVk, true));
         Send(inputs);
     }
 

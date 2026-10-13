@@ -65,6 +65,7 @@ public sealed class ActionRunner
         finally
         {
             if (paste.RestoreClipboard) _clipboard.Restore(saved);
+            _input.RestoreModifiers();
         }
     }
 
@@ -73,24 +74,28 @@ public sealed class ActionRunner
         if (macro.Steps.Count == 0) return;
         RequireSendable();
         _input.ReleaseModifiers();
-        foreach (var step in macro.Steps)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            switch (step)
+            foreach (var step in macro.Steps)
             {
-                case KeyStep key:
-                    if (!Shortcut.TryParse(key.Combo, out var combo))
-                        throw new InvalidOperationException($"\"{key.Combo}\" is not a key combination RingDeck understands.");
-                    _input.SendCombo(combo);
-                    break;
-                case TextStep text:
-                    _input.SendText(Placeholders.Expand(text.Text ?? "", _now(), _clipboard.GetText));
-                    break;
-                case DelayStep wait:
-                    await _delay(Math.Clamp(wait.Ms, 0, MaxDelayMs), ct);
-                    continue;
+                ct.ThrowIfCancellationRequested();
+                switch (step)
+                {
+                    case KeyStep key:
+                        if (!Shortcut.TryParse(key.Combo, out var combo))
+                            throw new InvalidOperationException($"\"{key.Combo}\" is not a key combination RingDeck understands.");
+                        _input.SendCombo(combo);
+                        break;
+                    case TextStep text:
+                        _input.SendText(Placeholders.Expand(text.Text ?? "", _now(), _clipboard.GetText));
+                        break;
+                    case DelayStep wait:
+                        await _delay(Math.Clamp(wait.Ms, 0, MaxDelayMs), ct);
+                        continue;
+                }
+                await _delay(StepGapMs, ct);
             }
-            await _delay(StepGapMs, ct);
         }
+        finally { _input.RestoreModifiers(); }
     }
 }

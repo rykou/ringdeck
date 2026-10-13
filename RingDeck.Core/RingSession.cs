@@ -7,11 +7,12 @@ public readonly record struct ChooseResult(ChooseKind Kind, Slice? Slice);
 /// <summary>State of the ring that is currently open: which ring, where, what is selected, and how deep.</summary>
 public sealed class RingSession
 {
-    public const double DeadZone = 28, SliceSize = 56, PushThrough = 1.7;
+    public const double DeadZone = 28, SliceSize = 56;
     public const int MaxDepth = 32;
 
     readonly Func<Guid, Ring?> _findRing;
     readonly Stack<(Ring Ring, double X, double Y)> _parents = new();
+    bool _pushArmed;
 
     public RingSession(Func<Guid, Ring?> findRing) => _findRing = findRing;
 
@@ -25,6 +26,9 @@ public sealed class RingSession
     public bool IsOpen => Current is not null;
     public int Depth => _parents.Count;
     public double Radius => Current is null ? 0 : RingGeometry.EffectiveRadius(Current.Radius, Current.Slices.Count, SliceSize);
+    /// <summary>How far from the centre the pointer must go to push through a nested slice: one slice width past
+    /// the slice circle, which is still reachable when the ring sits against a screen edge.</summary>
+    public double PushDistance => Radius + SliceSize;
 
     public void Open(Ring ring, double x, double y)
     {
@@ -35,6 +39,7 @@ public sealed class RingSession
         CenterY = y;
         Selected = -1;
         Sticky = ring.Mode == OpenMode.Click;
+        _pushArmed = true;
     }
 
     /// <summary>Moves a just-opened ring, for example after clamping it to the screen.</summary>
@@ -46,8 +51,11 @@ public sealed class RingSession
         if (Current is null) return false;
         double dx = x - CenterX, dy = y - CenterY;
         Selected = RingGeometry.SliceAt(dx, dy, Current.Slices.Count, DeadZone);
-        if (Selected < 0 || Sticky) return false;
-        if (dx * dx + dy * dy < Math.Pow(Radius * PushThrough, 2)) return false;
+        var inside = dx * dx + dy * dy < PushDistance * PushDistance;
+        if (inside) _pushArmed = true;
+        // After Back the pointer is still far out on the nested slice; wait for it to come back in before
+        // another push counts, or the child would reopen at once.
+        if (Selected < 0 || Sticky || inside || !_pushArmed) return false;
         return TryEnter(Current.Slices[Selected], x, y);
     }
 
@@ -84,6 +92,7 @@ public sealed class RingSession
         if (_parents.Count == 0) { Close(); return false; }
         (Current, CenterX, CenterY) = _parents.Pop();
         Selected = -1;
+        _pushArmed = false;
         return true;
     }
 
@@ -104,6 +113,7 @@ public sealed class RingSession
         CenterX = x;
         CenterY = y;
         Selected = -1;
+        _pushArmed = true;
         return true;
     }
 }

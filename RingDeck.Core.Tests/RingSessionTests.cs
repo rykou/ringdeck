@@ -73,6 +73,27 @@ public class RingSessionTests
     }
 
     [Fact]
+    public void BackAfterPushThroughStaysOnParentUntilPointerComesBackIn()
+    {
+        _s.Open(_root, 500, 500);
+        Assert.True(_s.PointerMoved(671, 500));
+        Assert.True(_s.Back());
+        Assert.False(_s.PointerMoved(671, 500));          // still far out: must not bounce back into the child
+        Assert.Same(_root, _s.Current);
+        Assert.Equal(1, _s.Selected);
+        Assert.False(_s.PointerMoved(560, 500));          // back inside
+        Assert.True(_s.PointerMoved(671, 500));           // a fresh push enters again
+        Assert.Same(_child, _s.Current);
+    }
+
+    [Fact]
+    public void PushThroughIsReachableBeforeTheClampedScreenEdge()
+    {
+        _s.Open(_root, 500, 500);
+        Assert.True(_s.PointerMoved(500 + _s.Radius + RingSession.SliceSize + 1, 500));
+    }
+
+    [Fact]
     public void PushThroughDoesNothingOnOrdinarySlice()
     {
         _s.Open(_root, 500, 500);

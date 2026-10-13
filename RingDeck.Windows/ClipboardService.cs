@@ -7,6 +7,8 @@ namespace RingDeck.Windows;
 /// <summary>Clipboard access through WPF. Must be called on the UI (STA) thread.</summary>
 public sealed class ClipboardService : IClipboard
 {
+    static readonly object CaptureFailed = new();
+
     public string? GetText()
     {
         try { return Clipboard.ContainsText() ? Clipboard.GetText() : null; }
@@ -33,11 +35,12 @@ public sealed class ClipboardService : IClipboard
             }
             return copy;
         }
-        catch (ExternalException) { return null; }
+        catch (ExternalException) { return CaptureFailed; }   // unknown contents: leave them alone on restore
     }
 
     public void Restore(object? snapshot)
     {
+        if (ReferenceEquals(snapshot, CaptureFailed)) return;
         try
         {
             if (snapshot is DataObject data && data.GetFormats(false).Length > 0) Clipboard.SetDataObject(data, true);

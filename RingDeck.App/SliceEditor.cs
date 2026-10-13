@@ -186,8 +186,11 @@ public partial class EditorWindow
                 record.Content = "Stop recording";
                 _app.Controller.Capture = (vk, down) =>
                 {
+                    if (vk < 0x08) return false;            // mouse buttons always pass, so Stop can be clicked
                     if (down) _recorder?.OnKeyDown(vk, InputSender.CurrentMods());
-                    return false;                       // keys still reach the app being recorded
+                    // Keys reach the app being recorded. When that "app" is this editor they are swallowed, or
+                    // Space and Enter would press the focused Stop button and Tab would walk the form.
+                    return IsActive && !RingDeck.Core.KeyNames.IsModifier(vk);
                 };
             }
             else

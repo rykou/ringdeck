@@ -157,7 +157,7 @@ public sealed class RingVisual : FrameworkElement
                 image = bitmap;
             }
         }
-        catch (Exception e) when (e is IOException or NotSupportedException or UriFormatException) { }
+        catch (Exception) { }   // damaged or unsupported image: draw the fallback glyph, and cache the miss
         return Images[icon] = image;
     }
 }

@@ -42,6 +42,19 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) => { Log(args.Exception); args.Handled = true; };
         AppDomain.CurrentDomain.UnhandledException += (_, args) => { if (args.ExceptionObject is Exception ex) Log(ex); };
 
+        try { Start(e); }
+        catch (Exception ex)
+        {
+            // Without this the process would stay alive with no tray icon, holding the single-instance lock.
+            Log(ex);
+            MessageBox.Show("RingDeck could not start.\n\n" + ex.Message, "RingDeck", MessageBoxButton.OK, MessageBoxImage.Error);
+            try { Tray?.Dispose(); } catch (Exception) { }
+            Shutdown();
+        }
+    }
+
+    void Start(StartupEventArgs e)
+    {
         Store = new ConfigStore(DataDir);
         var loaded = Store.Load();
         Config = loaded.Config;
@@ -57,7 +70,8 @@ public partial class App : Application
         Tray = new TrayIcon(ShowEditor, SetPaused, ExitApp);
         if (loaded.Recovered)
             Tray.Notify("Your settings file was damaged",
-                $"RingDeck loaded the last good copy. The damaged file was kept as {Path.GetFileName(loaded.BrokenPath)}.");
+                (Config.Rings.Count > 0 ? "RingDeck loaded the last good copy." : "There was no good copy to fall back on, so RingDeck started with no rings.")
+                + $" The damaged file was kept as {Path.GetFileName(loaded.BrokenPath)}.");
         StartController();
 
         _openEditor = new EventWaitHandle(false, EventResetMode.AutoReset, OpenEditorName);

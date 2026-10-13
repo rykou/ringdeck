@@ -4,4 +4,5 @@ publish/
 dist/
 installer/*.bmp
 *.user
+__pycache__/
 .superpowers/

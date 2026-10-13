@@ -18,9 +18,17 @@ public sealed class ShortcutBox : TextBox
         IsReadOnly = true;
         IsReadOnlyCaretVisible = false;
         ToolTip = "Click, then press the keys. Backspace clears, Esc cancels.";
-        GotKeyboardFocus += (_, _) => App.Instance.Controller.Capture = OnKey;
-        LostKeyboardFocus += (_, _) => App.Instance.Controller.Capture = null;
+        GotKeyboardFocus += (_, _) =>
+        {
+            var controller = App.Instance.Controller;
+            if (controller.Capture != (Func<int, bool, bool>)OnKey) _previous = controller.Capture;
+            controller.Capture = OnKey;
+        };
+        // Hand back whatever was capturing before (a macro recording), not null.
+        LostKeyboardFocus += (_, _) => { App.Instance.Controller.Capture = _previous; _previous = null; };
     }
+
+    Func<int, bool, bool>? _previous;
 
     public string Value { get => (string)GetValue(ValueProperty); set => SetValue(ValueProperty, value); }
     /// <summary>Allow a key with no modifier (used for macro steps such as Enter).</summary>
@@ -34,7 +42,10 @@ public sealed class ShortcutBox : TextBox
         if (vk == 0x1B && mods == Mods.None) Keyboard.ClearFocus();
         else if (vk is 0x08 or 0x2E && mods == Mods.None) Value = "";
         else if (AllowBare || mods != Mods.None || vk is (>= 0x70 and <= 0x87) or 0x04 or 0x05 or 0x06)
+        {
             Value = new Shortcut(mods, vk).ToString();
+            Dispatcher.BeginInvoke(Keyboard.ClearFocus);   // done: let the user try the shortcut without re-capturing it
+        }
         return true;
     }
 }

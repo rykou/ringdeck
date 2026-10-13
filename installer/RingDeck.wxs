@@ -9,8 +9,14 @@
 
     <Icon Id="RingDeckIcon.ico" SourceFile="ringdeck.ico" />
     <Property Id="ARPPRODUCTICON" Value="RingDeckIcon.ico" />
-    <Property Id="OPT_STARTMENU" Value="1" />
-    <Property Id="OPT_AUTOSTART" Value="1" />
+    <!-- Options are "1" or "0", never empty: an unticked checkbox deletes its property, and a deleted property
+         falls back to its default when the install phase starts, so the checkboxes drive CHK_* and the Next
+         button copies them into these as explicit values. Silent installs can pass OPT_AUTOSTART=0 and so on. -->
+    <Property Id="OPT_STARTMENU" Value="1" Secure="yes" />
+    <Property Id="OPT_DESKTOP" Value="0" Secure="yes" />
+    <Property Id="OPT_AUTOSTART" Value="1" Secure="yes" />
+    <Property Id="CHK_STARTMENU" Value="1" />
+    <Property Id="CHK_AUTOSTART" Value="1" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch RingDeck" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
@@ -32,7 +38,7 @@
       </Directory>
       <Directory Id="ProgramMenuFolder">
         <Component Id="StartMenuShortcut" Guid="*">
-          <Condition>OPT_STARTMENU</Condition>
+          <Condition>OPT_STARTMENU = "1"</Condition>
           <Shortcut Id="StartMenuLnk" Name="RingDeck" Target="[INSTALLFOLDER]RingDeck.exe"
                     WorkingDirectory="INSTALLFOLDER" Icon="RingDeckIcon.ico" />
           <RegistryValue Root="HKCU" Key="Software\RingDeck" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
@@ -40,7 +46,7 @@
       </Directory>
       <Directory Id="DesktopFolder">
         <Component Id="DesktopShortcut" Guid="*">
-          <Condition>OPT_DESKTOP</Condition>
+          <Condition>OPT_DESKTOP = "1"</Condition>
           <Shortcut Id="DesktopLnk" Name="RingDeck" Target="[INSTALLFOLDER]RingDeck.exe"
                     WorkingDirectory="INSTALLFOLDER" Icon="RingDeckIcon.ico" />
           <RegistryValue Root="HKCU" Key="Software\RingDeck" Name="Desktop" Type="integer" Value="1" KeyPath="yes" />
@@ -62,7 +68,7 @@
     <CustomAction Id="ClearAutostart" Directory="TARGETDIR" Return="ignore" Impersonate="yes" Execute="immediate"
                   ExeCommand="&quot;[SystemFolder]reg.exe&quot; delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v RingDeck /f" />
     <InstallExecuteSequence>
-      <Custom Action="SetAutostart" After="InstallFinalize">OPT_AUTOSTART AND NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
+      <Custom Action="SetAutostart" After="InstallFinalize">OPT_AUTOSTART = "1" AND NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
       <Custom Action="ClearAutostart" After="InstallFinalize">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
     </InstallExecuteSequence>
 
@@ -75,18 +81,24 @@
         <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes"
                  Text="Choose how RingDeck is set up." />
         <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
-        <Control Id="StartMenu" Type="CheckBox" X="25" Y="70" Width="300" Height="17" Property="OPT_STARTMENU"
+        <Control Id="StartMenu" Type="CheckBox" X="25" Y="70" Width="300" Height="17" Property="CHK_STARTMENU"
                  CheckBoxValue="1" Text="Add RingDeck to the Start Menu" />
-        <Control Id="Desktop" Type="CheckBox" X="25" Y="92" Width="300" Height="17" Property="OPT_DESKTOP"
+        <Control Id="Desktop" Type="CheckBox" X="25" Y="92" Width="300" Height="17" Property="CHK_DESKTOP"
                  CheckBoxValue="1" Text="Create a desktop shortcut" />
-        <Control Id="Autostart" Type="CheckBox" X="25" Y="114" Width="300" Height="17" Property="OPT_AUTOSTART"
+        <Control Id="Autostart" Type="CheckBox" X="25" Y="114" Width="300" Height="17" Property="CHK_AUTOSTART"
                  CheckBoxValue="1" Text="Start RingDeck when I sign in to Windows" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="&amp;Back">
           <Publish Event="NewDialog" Value="InstallDirDlg">1</Publish>
         </Control>
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="&amp;Next">
-          <Publish Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+          <Publish Property="OPT_STARTMENU" Value="1" Order="1">CHK_STARTMENU</Publish>
+          <Publish Property="OPT_STARTMENU" Value="0" Order="2">NOT CHK_STARTMENU</Publish>
+          <Publish Property="OPT_DESKTOP" Value="1" Order="3">CHK_DESKTOP</Publish>
+          <Publish Property="OPT_DESKTOP" Value="0" Order="4">NOT CHK_DESKTOP</Publish>
+          <Publish Property="OPT_AUTOSTART" Value="1" Order="5">CHK_AUTOSTART</Publish>
+          <Publish Property="OPT_AUTOSTART" Value="0" Order="6">NOT CHK_AUTOSTART</Publish>
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" Order="7">1</Publish>
         </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
           <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>

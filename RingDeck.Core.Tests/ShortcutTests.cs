@@ -25,6 +25,17 @@ public class ShortcutTests
     public void RejectsBadCombos(string? text) => Assert.False(Shortcut.TryParse(text, out _));
 
     [Fact]
+    public void KeysWithoutANameStillParse()
+    {
+        Assert.True(Shortcut.TryParse("Ctrl+Key0xC1", out var s));
+        Assert.Equal(new Shortcut(Mods.Ctrl, 0xC1), s);
+        Assert.False(Shortcut.TryParse("Key0x", out _));
+        Assert.False(Shortcut.TryParse("Key0xZZ", out _));
+        Assert.False(Shortcut.TryParse("Key0x00", out _));
+        Assert.False(Shortcut.TryParse("Key0x1FF", out _));
+    }
+
+    [Fact]
     public void RoundTripsThroughText()
     {
         var s = new Shortcut(Mods.Ctrl | Mods.Shift | Mods.Win, 0x70);
@@ -39,7 +50,6 @@ public class ShortcutTests
         foreach (var vk in Enumerable.Range(1, 254))
         {
             var name = KeyNames.NameOf(vk);
-            if (name.StartsWith("Key0x")) continue;
             Assert.True(KeyNames.TryGetVk(name, out var back), name);
             Assert.Equal(vk, back);
         }

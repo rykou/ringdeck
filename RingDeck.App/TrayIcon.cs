@@ -7,20 +7,22 @@ namespace RingDeck.App;
 public sealed class TrayIcon : INotifier, IDisposable
 {
     readonly WinForms.NotifyIcon _icon;
+    readonly System.Windows.Threading.Dispatcher _ui = System.Windows.Threading.Dispatcher.CurrentDispatcher;
 
     public TrayIcon(Action openEditor, Action<bool> setPaused, Action exit)
     {
         var pause = new WinForms.ToolStripMenuItem("Pause shortcuts") { CheckOnClick = true };
         pause.CheckedChanged += (_, _) => setPaused(pause.Checked);
         var autostart = new WinForms.ToolStripMenuItem("Start with Windows") { CheckOnClick = true };
-        autostart.CheckedChanged += (_, _) => Autostart.Set(autostart.Checked);
+        var syncing = false;
+        autostart.CheckedChanged += (_, _) => { if (!syncing) Autostart.Set(autostart.Checked); };
         var menu = new WinForms.ContextMenuStrip();
         menu.Items.Add("Open editor", null, (_, _) => openEditor());
         menu.Items.Add(pause);
         menu.Items.Add(autostart);
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => exit());
-        menu.Opening += (_, _) => autostart.Checked = Autostart.IsEnabled();
+        menu.Opening += (_, _) => { syncing = true; autostart.Checked = Autostart.IsEnabled(); syncing = false; };
         _icon = new WinForms.NotifyIcon
         {
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!),
@@ -31,8 +33,9 @@ public sealed class TrayIcon : INotifier, IDisposable
         _icon.DoubleClick += (_, _) => openEditor();
     }
 
+    /// <summary>Safe from any thread, and never blocks the caller.</summary>
     public void Notify(string title, string message) =>
-        _icon.ShowBalloonTip(5000, title, message, WinForms.ToolTipIcon.Info);
+        _ui.BeginInvoke(() => _icon.ShowBalloonTip(5000, title, message, WinForms.ToolTipIcon.Info));
 
     public void Dispose() { _icon.Visible = false; _icon.Dispose(); }
 }

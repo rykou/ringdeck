@@ -12,14 +12,17 @@ public sealed class RingController : IDisposable
     readonly Func<AppConfig> _config;
     readonly INotifier _notifier;
     readonly InputHook _hook = new();
-    readonly InputSender _input = new();
+    readonly InputSender _input;
     readonly HotkeyMatcher _matcher = new();
     readonly RingSession _session;
     readonly ActionRunner _runner;
     readonly OverlayWindow _overlay = new();
     readonly HashSet<int> _swallowUp = new();
     readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+    readonly Dispatcher _actions;          // a second STA thread: clipboard, SendInput and launching can block,
+                                           // and Windows drops a low-level hook whose thread stops answering
     CancellationTokenSource? _running;
+    ScreenInfo _screen;
     double _unit = 1, _dpiScale = 1;
     TimeSpan _lastFrame;
     bool _ticking, _disposed;
@@ -29,13 +32,41 @@ public sealed class RingController : IDisposable
         _config = config;
         _notifier = notifier;
         _session = new RingSession(id => _config().Find(id));
+        _input = new InputSender(_hook.IsPhysicallyDown);
         _runner = new ActionRunner(_input, new ClipboardService(), new Launcher(), notifier);
+        _actions = StartActionThread();
+        _hook.Error = App.Log;
         _overlay.Current.FindRing = _overlay.Outgoing.FindRing = id => _config().Find(id);
         _overlay.Show();
         _overlay.Park();
         _hook.Key = OnKey;
         _hook.Install();
         Reload();
+    }
+
+    static Dispatcher StartActionThread()
+    {
+        Dispatcher? dispatcher = null;
+        using var ready = new ManualResetEventSlim();
+        var thread = new Thread(() =>
+        {
+            dispatcher = Dispatcher.CurrentDispatcher;
+            ready.Set();
+            Dispatcher.Run();
+        }) { IsBackground = true, Name = "RingDeck actions" };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        ready.Wait();
+        return dispatcher!;
+    }
+
+    /// <summary>Queues work to run on the UI thread right after the hook callback returns.</summary>
+    void Post(Action action) => _dispatcher.BeginInvoke(DispatcherPriority.Send, action);
+
+    void CancelRunning()
+    {
+        try { _running?.Cancel(); }
+        catch (ObjectDisposedException) { }
     }
 
     public Func<int, bool, bool>? Capture { get; set; }
@@ -54,31 +85,41 @@ public sealed class RingController : IDisposable
     {
         if (Capture is { } capture) return capture(vk, down);
         if (!down && _swallowUp.Remove(vk)) return true;
-        if (down && vk == VkEsc && _running is { } running)
+        if (down && vk == VkEsc && _running is not null)
         {
-            running.Cancel();
+            CancelRunning();
             _swallowUp.Add(vk);
             return true;
         }
         if (down && _session.IsOpen && vk is VkEsc or VkBack or VkRight or VkLeft)
         {
             _swallowUp.Add(vk);
-            switch (vk)
+            Post(() =>
             {
-                case VkEsc: CloseRing(); break;
-                case VkLeft: ChooseAtPointer(false); break;
-                default: GoBack(); break;
-            }
+                if (!_session.IsOpen) return;
+                switch (vk)
+                {
+                    case VkEsc: CloseRing(); break;
+                    case VkLeft: ChooseAtPointer(false); break;
+                    default: GoBack(); break;
+                }
+            });
             return true;
         }
         var mods = InputSender.CurrentMods();
         var result = _matcher.OnKey(vk, down, mods);
+        // Only the decision is made here; the work is posted, in order, so the callback returns at once.
         if (result.Pressed is { } pressed)
         {
-            if ((mods & (Mods.Alt | Mods.Win)) != 0) _dispatcher.BeginInvoke(_input.SendMask);
-            if (_session.IsOpen) CloseRing(); else OpenRing(pressed);
+            var mask = (mods & (Mods.Alt | Mods.Win)) != 0;
+            Post(() =>
+            {
+                if (mask) _input.SendMask();
+                if (_session.IsOpen) CloseRing(); else OpenRing(pressed);
+            });
         }
-        if (result.Released is { } released && _session.IsOpen && _session.RootId == released) ChooseAtPointer(true);
+        if (result.Released is { } released)
+            Post(() => { if (_session.IsOpen && _session.RootId == released) ChooseAtPointer(true); });
         return result.Swallow;
     }
 
@@ -101,15 +142,22 @@ public sealed class RingController : IDisposable
     {
         if (_config().Find(id) is not { Enabled: true } ring) return;
         var (px, py) = Screens.Cursor();
-        var screen = Screens.At(px, py);
-        _dpiScale = screen.DpiScale;
+        _screen = Screens.At(px, py);
+        _dpiScale = _screen.DpiScale;
         _unit = _dpiScale * Math.Clamp(_config().Settings.Scale, 0.5, 2.0);
-        var radius = RingGeometry.EffectiveRadius(ring.Radius, ring.Slices.Count, RingSession.SliceSize);
-        var (x, y) = RingGeometry.ClampCenter(px / _unit, py / _unit, radius + RingSession.SliceSize,
-            screen.Left / _unit, screen.Top / _unit, screen.Right / _unit, screen.Bottom / _unit);
-        _session.Open(ring, x, y);
+        _session.Open(ring, px / _unit, py / _unit);
+        ClampSession();
         _overlay.Outgoing.Ring = null;
         ShowCurrent();
+    }
+
+    /// <summary>Keeps the current ring, labels included, on the monitor it opened on. Child rings open at the
+    /// pointer, so they need this as much as the first ring does.</summary>
+    void ClampSession()
+    {
+        var (x, y) = RingGeometry.ClampCenter(_session.CenterX, _session.CenterY, _session.Radius + RingSession.SliceSize + 12,
+            _screen.Left / _unit, _screen.Top / _unit, _screen.Right / _unit, _screen.Bottom / _unit);
+        _session.Recenter(x, y);
     }
 
     void ShowCurrent()
@@ -129,6 +177,7 @@ public sealed class RingController : IDisposable
     /// <summary>The session moved to another ring (child or parent): fade the old one out where it was.</summary>
     void Transition(double oldX, double oldY)
     {
+        ClampSession();
         var current = _overlay.Current;
         var outgoing = _overlay.Outgoing;
         outgoing.Ring = current.Ring;
@@ -167,24 +216,28 @@ public sealed class RingController : IDisposable
         if (result.Kind == ChooseKind.MissingRing)
             _notifier.Notify($"\"{result.Slice?.Label}\" has nothing to open", "The ring it points to was deleted or has no slices.");
         if (result.Kind == ChooseKind.Run && result.Slice is { } slice)
-            _dispatcher.BeginInvoke(() => RunSlice(slice));
+            RunSlice(slice);
     }
 
-    async void RunSlice(Slice slice)
+    void RunSlice(Slice slice)
     {
-        _running?.Cancel();
-        var cts = _running = new CancellationTokenSource();
-        try
+        CancelRunning();
+        var cts = new CancellationTokenSource();
+        _running = cts;
+        _actions.BeginInvoke(new Func<Task>(async () =>
         {
-            await Task.Delay(30);                 // let the swallowed shortcut key-up settle before sending input
-            await _runner.RunAsync(slice, cts.Token);
-        }
-        catch (Exception ex) { App.Log(ex); }
-        finally
-        {
-            if (ReferenceEquals(_running, cts)) _running = null;
-            cts.Dispose();
-        }
+            try
+            {
+                await Task.Delay(30);             // let the swallowed shortcut key-up settle before sending input
+                await _runner.RunAsync(slice, cts.Token);
+            }
+            catch (Exception ex) { App.Log(ex); }
+            finally
+            {
+                Interlocked.CompareExchange(ref _running, null, cts);
+                cts.Dispose();
+            }
+        }));
     }
 
     void StartTicking()
@@ -229,7 +282,8 @@ public sealed class RingController : IDisposable
         if (_disposed) return;
         _disposed = true;
         _hook.Dispose();
-        _running?.Cancel();
+        CancelRunning();
+        _actions.BeginInvokeShutdown(DispatcherPriority.Normal);
         if (_ticking) CompositionTarget.Rendering -= OnFrame;
         _overlay.Close();
     }

@@ -54,7 +54,11 @@ public sealed class ConfigStore
 
         var broken = Path.Combine(Dir, $"config.broken-{DateTime.Now:yyyyMMdd-HHmmss}.json");
         File.Move(ConfigPath, broken, true);
-        return new LoadResult(TryRead(BackupPath) ?? new AppConfig(), false, true, broken);
+        var recovered = TryRead(BackupPath) ?? new AppConfig();
+        // Write it back at once, leaving the backup alone: otherwise the next start finds no config.json,
+        // takes it for a first run, and the sample ring replaces the user's rings.
+        File.WriteAllText(ConfigPath, ToJson(recovered));
+        return new LoadResult(recovered, false, true, broken);
     }
 
     /// <summary>Atomic save: write a temp file, then swap it in, keeping the previous file as the backup.</summary>

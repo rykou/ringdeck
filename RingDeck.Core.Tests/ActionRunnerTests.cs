@@ -15,6 +15,7 @@ public class ActionRunnerTests
 
         public bool CanSendToForeground() => !Elevated;
         public void ReleaseModifiers() => Log.Add("release");
+        public void RestoreModifiers() => Log.Add("restore-mods");
         public void SendCombo(Shortcut combo) => Log.Add("combo " + combo);
         public void SendText(string text) => Log.Add("text " + text);
         public string? GetText() => Clip;
@@ -41,7 +42,7 @@ public class ActionRunnerTests
     {
         var (r, f) = Make();
         await r.RunAsync(S(new PasteTextAction { Text = "on {date:yyyy} was {clipboard}" }), default);
-        Assert.Equal(new[] { "set on 2026 was old", "release", "combo Ctrl+V", "restore" }, f.Log);
+        Assert.Equal(new[] { "set on 2026 was old", "release", "combo Ctrl+V", "restore", "restore-mods" }, f.Log);
         Assert.Equal("old", f.Clip);
         Assert.Empty(f.Notes);
     }
@@ -104,7 +105,7 @@ public class ActionRunnerTests
         {
             new KeyStep { Combo = "Ctrl+A" }, new DelayStep { Ms = 40 }, new TextStep { Text = "y{date:yyyy}" }, new KeyStep { Combo = "Enter" },
         } }), default);
-        Assert.Equal(new[] { "release", "combo Ctrl+A", "text y2026", "combo Enter" }, f.Log);
+        Assert.Equal(new[] { "release", "combo Ctrl+A", "text y2026", "combo Enter", "restore-mods" }, f.Log);
         Assert.Contains(40, f.Delays);
     }
 
@@ -126,6 +127,7 @@ public class ActionRunnerTests
         await r.RunAsync(S(new MacroAction { Steps = { new TextStep { Text = "a" }, new DelayStep { Ms = 500 }, new TextStep { Text = "b" } } }), cts.Token);
         Assert.Contains("text a", f.Log);
         Assert.DoesNotContain("text b", f.Log);
+        Assert.Equal("restore-mods", f.Log[^1]);          // held modifiers are given back even when cancelled
         Assert.Empty(f.Notes);
     }
 
