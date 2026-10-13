@@ -1,7 +1,109 @@
 <Window x:Class="RingDeck.App.EditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:RingDeck.Core;assembly=RingDeck.Core"
+        xmlns:local="clr-namespace:RingDeck.App"
         Title="RingDeck" Width="1180" Height="740" MinWidth="980" MinHeight="600"
         WindowStartupLocation="CenterScreen">
-  <Grid />
+  <Grid Margin="16">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="250" />
+      <ColumnDefinition Width="*" />
+      <ColumnDefinition Width="370" />
+    </Grid.ColumnDefinitions>
+
+    <!-- Left: ring list -->
+    <DockPanel Grid.Column="0" Margin="0,0,16,0">
+      <TextBlock DockPanel.Dock="Top" Style="{StaticResource Heading}" Text="Rings" />
+      <TextBox x:Name="search" DockPanel.Dock="Top" Margin="0,4,0,8" TextChanged="OnSearch" ToolTip="Filter rings by name" />
+      <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+        <UniformGrid Columns="3">
+          <Button Content="New" Click="OnAddRing" Margin="0,0,4,0" />
+          <Button Content="Duplicate" Click="OnDuplicateRing" Margin="0,0,4,0" />
+          <Button Content="Delete" Click="OnDeleteRing" />
+        </UniformGrid>
+        <UniformGrid Columns="3" Margin="0,6,0,0">
+          <Button Content="Import" Click="OnImport" Margin="0,0,4,0" />
+          <Button Content="Export" Click="OnExport" Margin="0,0,4,0" />
+          <Button Content="Settings" Click="OnShowSettings" />
+        </UniformGrid>
+      </StackPanel>
+      <ListBox x:Name="ringList" SelectionChanged="OnRingSelected">
+        <ListBox.ItemTemplate>
+          <DataTemplate DataType="{x:Type core:Ring}">
+            <DockPanel Margin="2,4">
+              <CheckBox DockPanel.Dock="Left" IsChecked="{Binding Enabled}" Click="OnEdited" ToolTip="Shortcut active" MinWidth="0" Margin="0,0,6,0" />
+              <StackPanel>
+                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding Shortcut}" FontSize="11" Foreground="{DynamicResource SubtleBrush}" />
+              </StackPanel>
+            </DockPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </DockPanel>
+
+    <!-- Middle: live preview -->
+    <Border Grid.Column="1" CornerRadius="12" Background="{DynamicResource StageBrush}">
+      <DockPanel>
+        <DockPanel DockPanel.Dock="Bottom" Margin="16">
+          <Button DockPanel.Dock="Right" Content="Add slice" Click="OnAddSlice" />
+          <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap"
+                     Text="Click a slice to edit it. Drag a slice onto another to reorder. Click the centre for ring settings." />
+        </DockPanel>
+        <Viewbox Margin="16" Stretch="Uniform" StretchDirection="DownOnly">
+          <local:RingVisual x:Name="preview" Width="600" Height="600"
+                            MouseLeftButtonDown="OnPreviewDown" MouseLeftButtonUp="OnPreviewUp" />
+        </Viewbox>
+      </DockPanel>
+    </Border>
+
+    <!-- Right: settings for the selection -->
+    <ScrollViewer Grid.Column="2" Margin="16,0,0,0" VerticalScrollBarVisibility="Auto"
+                  TextBoxBase.TextChanged="OnEdited" ToggleButton.Checked="OnEdited" ToggleButton.Unchecked="OnEdited"
+                  Selector.SelectionChanged="OnEdited" RangeBase.ValueChanged="OnEdited">
+      <Grid Margin="0,0,8,0">
+        <StackPanel x:Name="ringPanel">
+          <TextBlock Style="{StaticResource Heading}" Text="Ring" />
+          <TextBlock Style="{StaticResource Caption}" Text="Name" />
+          <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+          <TextBlock Style="{StaticResource Caption}" Text="Shortcut" />
+          <local:ShortcutBox Value="{Binding Shortcut}" />
+          <TextBlock x:Name="shortcutWarning" Foreground="#F2994A" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed" />
+          <TextBlock Style="{StaticResource Caption}" Text="Opens when" />
+          <ComboBox SelectedValue="{Binding Mode}" SelectedValuePath="Tag">
+            <ComboBoxItem Content="Held: release to choose" Tag="{x:Static core:OpenMode.Hold}" />
+            <ComboBoxItem Content="Pressed: click to choose" Tag="{x:Static core:OpenMode.Click}" />
+          </ComboBox>
+          <TextBlock Style="{StaticResource Caption}" Text="Size" />
+          <Slider Minimum="60" Maximum="400" Value="{Binding Radius}" />
+          <TextBlock Style="{StaticResource Caption}" Text="Centre colour" />
+          <local:ColorField Value="{Binding Color}" />
+          <TextBlock Style="{StaticResource Caption}" Text="Highlight colour (empty uses the global one)" />
+          <local:ColorField Value="{Binding Accent}" />
+          <CheckBox Content="Show slice labels" IsChecked="{Binding ShowLabels}" Margin="0,14,0,0" />
+        </StackPanel>
+
+        <StackPanel x:Name="slicePanel" Visibility="Collapsed" />
+
+        <StackPanel x:Name="settingsPanel" Visibility="Collapsed">
+          <TextBlock Style="{StaticResource Heading}" Text="Settings" />
+          <TextBlock Style="{StaticResource Caption}" Text="Theme" />
+          <ComboBox SelectedValue="{Binding Theme}" SelectedValuePath="Tag">
+            <ComboBoxItem Content="Match Windows" Tag="system" />
+            <ComboBoxItem Content="Dark" Tag="dark" />
+            <ComboBoxItem Content="Light" Tag="light" />
+          </ComboBox>
+          <TextBlock Style="{StaticResource Caption}" Text="Highlight colour" />
+          <local:ColorField Value="{Binding Accent}" />
+          <TextBlock Style="{StaticResource Caption}" Text="Ring scale" />
+          <Slider Minimum="0.5" Maximum="2" TickFrequency="0.1" IsSnapToTickEnabled="True" Value="{Binding Scale}" />
+          <CheckBox Content="Animate rings" IsChecked="{Binding Animations}" Margin="0,14,0,0" />
+          <CheckBox Content="Spiral outward on close" IsChecked="{Binding SpiralClose}" />
+          <CheckBox Content="Pointer snaps instantly" IsChecked="{Binding InstantPointer}" />
+          <CheckBox x:Name="autostartBox" Content="Start RingDeck with Windows" Click="OnAutostart" Margin="0,14,0,0" />
+        </StackPanel>
+      </Grid>
+    </ScrollViewer>
+  </Grid>
 </Window>
