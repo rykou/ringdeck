@@ -63,6 +63,27 @@ public partial class App : Application
         _openEditor = new EventWaitHandle(false, EventResetMode.AutoReset, OpenEditorName);
         new Thread(() => { while (_openEditor.WaitOne()) Dispatcher.BeginInvoke(ShowEditor); }) { IsBackground = true }.Start();
         if (loaded.FirstRun || !e.Args.Contains("--tray")) ShowEditor();
+
+        var shot = Array.IndexOf(e.Args, "--shot-editor");
+        if (shot >= 0 && shot + 1 < e.Args.Length)
+        {
+            // Developer aid: save two pictures of the editor (ring panel, slice panel) and exit.
+            ShowEditor();
+            var prefix = e.Args[shot + 1];
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                try
+                {
+                    _editor!.SaveShot(prefix + "-ring.png", false);
+                    _editor.SaveShot(prefix + "-slice.png", true);
+                }
+                catch (Exception ex) { Log(ex); }
+                ExitApp();
+            };
+            timer.Start();
+        }
     }
 
     public RingController Controller { get; private set; } = null!;

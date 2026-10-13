@@ -14,6 +14,7 @@ public sealed class ShortcutBox : TextBox
 
     public ShortcutBox()
     {
+        SetResourceReference(StyleProperty, typeof(TextBox));   // a subclass does not pick up the themed TextBox style by itself
         IsReadOnly = true;
         IsReadOnlyCaretVisible = false;
         ToolTip = "Click, then press the keys. Backspace clears, Esc cancels.";

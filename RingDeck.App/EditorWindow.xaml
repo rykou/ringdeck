@@ -19,7 +19,7 @@
       <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
         <UniformGrid Columns="3">
           <Button Content="New" Click="OnAddRing" Margin="0,0,4,0" />
-          <Button Content="Duplicate" Click="OnDuplicateRing" Margin="0,0,4,0" />
+          <Button Content="Copy" ToolTip="Duplicate this ring" Click="OnDuplicateRing" Margin="0,0,4,0" />
           <Button Content="Delete" Click="OnDeleteRing" />
         </UniformGrid>
         <UniformGrid Columns="3" Margin="0,6,0,0">
@@ -51,7 +51,7 @@
           <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap"
                      Text="Click a slice to edit it. Drag a slice onto another to reorder. Click the centre for ring settings." />
         </DockPanel>
-        <Viewbox Margin="16" Stretch="Uniform" StretchDirection="DownOnly">
+        <Viewbox Margin="16" Stretch="Uniform" MaxWidth="760" MaxHeight="760">
           <local:RingVisual x:Name="preview" Width="600" Height="600"
                             MouseLeftButtonDown="OnPreviewDown" MouseLeftButtonUp="OnPreviewUp" />
         </Viewbox>

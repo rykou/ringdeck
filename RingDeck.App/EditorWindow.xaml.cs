@@ -20,12 +20,30 @@ public partial class EditorWindow : Window
 
     AppConfig Config => _app.Config;
 
+    /// <summary>Developer aid for `--shot-editor`: saves the window's content as a PNG, optionally with a slice selected.</summary>
+    internal void SaveShot(string path, bool selectSlice)
+    {
+        if (selectSlice && _ring?.Slices.FirstOrDefault(s => s.Action is MacroAction) is { } slice) ShowSlice(slice);
+        UpdateLayout();
+        var root = (FrameworkElement)Content;
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth + 32, (int)root.ActualHeight + 32, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+        var backdrop = new System.Windows.Media.DrawingVisual();
+        using (var dc = backdrop.RenderOpen())
+            dc.DrawRectangle(Theme.Frozen(Theme.IsDark ? System.Windows.Media.Color.FromRgb(0x20, 0x20, 0x20) : System.Windows.Media.Color.FromRgb(0xF3, 0xF3, 0xF3)), null, new Rect(0, 0, root.ActualWidth + 32, root.ActualHeight + 32));
+        bitmap.Render(backdrop);
+        bitmap.Render(root);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using var file = File.Create(path);
+        encoder.Save(file);
+    }
+
     public EditorWindow()
     {
         InitializeComponent();
         preview.FindRing = id => Config.Find(id);
         _saveTimer.Tick += (_, _) => Flush();
-        Closing += (_, _) => { _app.Controller.Capture = null; Flush(); };
+        Closing += (_, _) => { StopRecording(); _app.Controller.Capture = null; Flush(); };
         settingsPanel.DataContext = Config.Settings;
         autostartBox.IsChecked = Autostart.IsEnabled();
         RefreshRings(Config.Rings.FirstOrDefault());
@@ -112,9 +130,6 @@ public partial class EditorWindow : Window
 
     void OnAutostart(object sender, RoutedEventArgs e) => Autostart.Set(autostartBox.IsChecked == true);
 
-    // Task 12 replaces this with the slice editor.
-    void LoadSlicePanel() { }
-
     // ----- preview -----
 
     internal void RefreshPreview()
@@ -123,7 +138,7 @@ public partial class EditorWindow : Window
         if (_ring is not null)
         {
             preview.Radius = RingGeometry.EffectiveRadius(_ring.Radius, _ring.Slices.Count, RingSession.SliceSize);
-            preview.Width = preview.Height = RingVisual.ExtentFor(preview.Radius) * 2;
+            preview.Width = preview.Height = (preview.Radius + RingSession.SliceSize + 44) * 2;   // tighter than the overlay: nothing animates here
             preview.Animator.ShowStatic(_ring.Slices.Count);
             preview.Selected = _slice is null ? -1 : _ring.Slices.IndexOf(_slice);
             if (preview.Selected >= 0)

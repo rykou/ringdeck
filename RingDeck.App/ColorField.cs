@@ -16,8 +16,8 @@ public sealed class ColorField : StackPanel
         typeof(ColorField), new FrameworkPropertyMetadata("", FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
             (d, e) => ((ColorField)d).Sync()));
 
-    readonly TextBox _hex = new() { Width = 96, MaxLength = 9 };
-    readonly Border _swatch = new() { Width = 28, Height = 28, CornerRadius = new CornerRadius(6), Margin = new Thickness(8, 0, 8, 0) };
+    readonly TextBox _hex = new() { Width = 92, MaxLength = 9 };
+    readonly Border _swatch = new() { Width = 28, Height = 28, CornerRadius = new CornerRadius(6), Margin = new Thickness(6, 0, 4, 0) };
 
     public ColorField()
     {
@@ -28,7 +28,7 @@ public sealed class ColorField : StackPanel
         {
             var button = new Button
             {
-                Width = 20, Height = 20, Margin = new Thickness(2, 0, 0, 0), Padding = new Thickness(0), ToolTip = preset,
+                Width = 18, Height = 18, MinWidth = 0, MinHeight = 0, Margin = new Thickness(2, 0, 0, 0), Padding = new Thickness(0), ToolTip = preset,
                 Background = Theme.Frozen(Theme.Parse(preset, Colors.Gray)),
             };
             button.Click += (_, _) => Value = preset;
