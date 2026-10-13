@@ -47,6 +47,13 @@ public partial class App : Application
         Config = loaded.Config;
         Icons = new IconStore(Store.IconsDir);
         Theme.Apply(Config.Settings);
+        var render = Array.IndexOf(e.Args, "--render");
+        if (render >= 0 && render + 1 < e.Args.Length)
+        {
+            RenderProbe.Render(Config, e.Args[render + 1], render + 2 < e.Args.Length && int.TryParse(e.Args[render + 2], out var slice) ? slice : -1);
+            Shutdown();
+            return;
+        }
         Tray = new TrayIcon(ShowEditor, SetPaused, ExitApp);
         if (loaded.Recovered)
             Tray.Notify("Your settings file was damaged",
@@ -58,10 +65,29 @@ public partial class App : Application
         if (loaded.FirstRun || !e.Args.Contains("--tray")) ShowEditor();
     }
 
-    // Task 10 replaces these three bodies.
-    void StartController() { }
-    void SetPaused(bool paused) { }
-    void StopController() { }
+    public RingController Controller { get; private set; } = null!;
+
+    void StartController()
+    {
+        try { Controller = new RingController(() => Config, Tray); }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            Log(ex);
+            MessageBox.Show(ex.Message, "RingDeck", MessageBoxButton.OK, MessageBoxImage.Error);
+            Tray.Dispose();
+            Shutdown();
+        }
+    }
+
+    void SetPaused(bool paused) => Controller.Paused = paused;
+
+    void StopController() => Controller?.Dispose();
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        StopController();
+        base.OnExit(e);
+    }
 
     public void ShowEditor()
     {
@@ -76,7 +102,11 @@ public partial class App : Application
     }
 
     /// <summary>Called by the editor after any change to the config.</summary>
-    public void ConfigChanged() => Theme.Apply(Config.Settings);
+    public void ConfigChanged()
+    {
+        Theme.Apply(Config.Settings);
+        Controller.Reload();
+    }
 
     void ExitApp()
     {
