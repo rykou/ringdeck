@@ -2,7 +2,7 @@
 # Builds RingDeck. Runs from WSL.
 #   ./build.sh test   unit tests (Linux)
 #   ./build.sh run    publish, copy to %TEMP%\ringdeck-dev and start it on Windows
-#   ./build.sh        publish RingDeck.exe and package dist/RingDeck-<version>.msi with WiX 3
+#   ./build.sh        publish RingDeck.exe, package dist/RingDeck-<version>.msi with WiX 3, copy it to Downloads
 # Tools come from the environment, falling back to the decompilerPro ../../.local layout (DOTNET_ROOT, WIX_DIR).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -53,3 +53,8 @@ tools="$wintemp/ringdeck-wix3"
 cp "$stage/RingDeck.msi" "dist/RingDeck-$version.msi"
 rm -rf "$stage"
 ls -la "dist/RingDeck-$version.msi"
+# Also drop a copy in the Windows Downloads folder (override with MSI_COPY_DIR, or set it empty to skip).
+downloads="${MSI_COPY_DIR-$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')")/Downloads}"
+if [ -n "$downloads" ] && [ -d "$downloads" ]; then
+  cp "dist/RingDeck-$version.msi" "$downloads/" && echo "copied to $downloads/RingDeck-$version.msi"
+fi

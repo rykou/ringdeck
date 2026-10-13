@@ -23,7 +23,9 @@ public static class Theme
         IsDark = settings.Theme == "dark" || (settings.Theme != "light" && SystemIsDark());
         Accent = Parse(settings.Accent, Color.FromRgb(0x4C, 0xC2, 0xFF));
         var app = Application.Current;
-        app.ThemeMode = settings.Theme switch { "dark" => ThemeMode.Dark, "light" => ThemeMode.Light, _ => ThemeMode.System };
+        // Assigning ThemeMode reloads every control's style (and closes open drop-downs), so only do it on a real change.
+        var mode = settings.Theme switch { "dark" => ThemeMode.Dark, "light" => ThemeMode.Light, _ => ThemeMode.System };
+        if (app.ThemeMode != mode) app.ThemeMode = mode;
         app.Resources["SubtleBrush"] = Frozen(Subtle);
         app.Resources["StageBrush"] = Frozen(IsDark ? Color.FromRgb(0x14, 0x14, 0x1A) : Color.FromRgb(0xE4, 0xE4, 0xEC));
     }

@@ -94,7 +94,7 @@ public partial class App : Application
                     _editor.SaveShot(prefix + "-slice.png", true);
                 }
                 catch (Exception ex) { Log(ex); }
-                ExitApp();
+                _editor!.ProbeDropDown(prefix + "-probe.txt", ExitApp);
             };
             timer.Start();
         }

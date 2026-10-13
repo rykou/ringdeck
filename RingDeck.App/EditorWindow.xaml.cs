@@ -20,6 +20,28 @@ public partial class EditorWindow : Window
 
     AppConfig Config => _app.Config;
 
+    int _touchCount;
+
+    /// <summary>Developer aid for `--shot-editor`: opens the first drop-down of the ring panel and reports, after a
+    /// moment, whether it stayed open and how many edits the editor thought happened (should be none).</summary>
+    internal void ProbeDropDown(string path, Action done)
+    {
+        ShowSlice(null);
+        UpdateLayout();
+        var combo = ringPanel.Children.OfType<ComboBox>().First();
+        var before = _touchCount;
+        combo.IsDropDownOpen = true;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            File.WriteAllText(path, $"dropdown open after 1.5s: {combo.IsDropDownOpen}; edits registered: {_touchCount - before}\n");
+            combo.IsDropDownOpen = false;
+            done();
+        };
+        timer.Start();
+    }
+
     /// <summary>Developer aid for `--shot-editor`: saves the window's content as a PNG, optionally with a slice selected.</summary>
     internal void SaveShot(string path, bool selectSlice)
     {
@@ -190,12 +212,17 @@ public partial class EditorWindow : Window
 
     void OnEdited(object sender, RoutedEventArgs e)
     {
-        if (!_loading && IsLoaded) Touch();
+        if (_loading || !IsLoaded) return;
+        // A drop-down opens and closes through a toggle button inside its template. That is not an edit: treating
+        // it as one re-applied the theme, which closed the drop-down, which counted as another edit, in a loop.
+        if (e.OriginalSource is System.Windows.Controls.Primitives.ToggleButton and not CheckBox) return;
+        Touch();
     }
 
     /// <summary>Something changed: refresh what depends on it and schedule a save. Deferred so bindings settle first.</summary>
     internal void Touch()
     {
+        _touchCount++;
         if (_touchQueued) return;
         _touchQueued = true;
         Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
