@@ -16,6 +16,8 @@
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
+    <Using Include="System.IO" />
+    <Using Include="System.Linq" />
     <Resource Include="../ringdeck.ico" Link="ringdeck.ico" />
     <ProjectReference Include="../RingDeck.Core/RingDeck.Core.csproj" />
     <ProjectReference Include="../RingDeck.Windows/RingDeck.Windows.csproj" />

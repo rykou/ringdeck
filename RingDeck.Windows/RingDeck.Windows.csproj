@@ -8,6 +8,8 @@
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
+    <Using Include="System.IO" />
+    <Using Include="System.Linq" />
     <ProjectReference Include="../RingDeck.Core/RingDeck.Core.csproj" />
   </ItemGroup>
 </Project>
