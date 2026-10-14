@@ -51,3 +51,25 @@ account and are never included when you export rings.
     ./build.sh         # dist/RingDeck-<version>.msi
 
 Needs a .NET 10 SDK and the WiX 3.14 binaries; see the header of `build.sh` for where they are looked up.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org). Signing is being set up: releases up to 0.2.4 are not signed yet.
+
+- Committers and reviewers: [rykou](https://github.com/rykou)
+- Approvers: [rykou](https://github.com/rykou)
+
+Only installers built by this repository's [GitHub Actions workflow](.github/workflows/build.yml) from a tagged commit
+are signed. Nothing built on a personal computer is.
+
+## Privacy
+
+RingDeck does not send information to other computers, with one exception you control: when you use an AI chat slice,
+the text of that chat goes to the AI service you set up for that slice, and nowhere else. Your rings, snippets and
+settings stay on your PC, in `%APPDATA%\RingDeck`.
+
+## License
+
+[MIT](LICENSE)
+
