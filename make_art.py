@@ -76,9 +76,28 @@ def write_bmp(path, w, h, f):
         fh.write(b"BM" + struct.pack("<IHHI", 54 + len(body), 0, 0, 54)
                  + struct.pack("<IiiHHIIiiII", 40, w, h, 1, 24, 0, len(body), 2835, 2835, 0, 0) + body)
 
+def logo_pixel(width, height, mark):
+    """The ring mark centred on a transparent background (Store tiles and logos)."""
+    def f(x, y):
+        c = ring(x, y, width / 2, height / 2, mark * 0.36, mark * 0.1)
+        return (*(c or BG), 255 if c else 0)
+    return f
+
+def write_png(path, w, h, f):
+    with open(path, "wb") as fh:
+        fh.write(png(render(w, h, f)))
+
+def write_store_logos(folder):
+    os.makedirs(folder, exist_ok=True)
+    write_png(os.path.join(folder, "StoreLogo.png"), 50, 50, icon_pixel(50))
+    write_png(os.path.join(folder, "Square44x44Logo.png"), 44, 44, logo_pixel(44, 44, 44))
+    write_png(os.path.join(folder, "Square150x150Logo.png"), 150, 150, logo_pixel(150, 150, 110))
+    write_png(os.path.join(folder, "Wide310x150Logo.png"), 310, 150, logo_pixel(310, 150, 110))
+
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(os.path.join(here, "installer"), exist_ok=True)
     write_ico(os.path.join(here, "ringdeck.ico"))
     write_bmp(os.path.join(here, "installer", "banner.bmp"), 493, 58, banner_pixel)
     write_bmp(os.path.join(here, "installer", "dialog.bmp"), 493, 312, dialog_pixel)
+    write_store_logos(os.path.join(here, "installer", "msix", "Assets"))

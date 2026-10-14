@@ -7,3 +7,4 @@ installer/*.bmp
 __pycache__/
 .superpowers/
 brag-output*/
+installer/msix/Assets/

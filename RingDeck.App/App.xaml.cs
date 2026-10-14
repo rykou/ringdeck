@@ -110,7 +110,8 @@ public partial class App : Application
 
         _openEditor = new EventWaitHandle(false, EventResetMode.AutoReset, OpenEditorName);
         new Thread(() => { while (_openEditor.WaitOne()) Dispatcher.BeginInvoke(ShowEditor); }) { IsBackground = true }.Start();
-        if (loaded.FirstRun || !e.Args.Contains("--tray")) ShowEditor();
+        var quietStart = e.Args.Contains("--tray") || AppPackage.StartedAtSignIn();
+        if (loaded.FirstRun || !quietStart) ShowEditor();
 
         var shot = Array.IndexOf(e.Args, "--shot-editor");
         if (shot >= 0 && shot + 1 < e.Args.Length)

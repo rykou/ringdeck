@@ -217,7 +217,13 @@ public partial class EditorWindow : Window
         settingsPanel.Visibility = Visibility.Visible;
     }
 
-    void OnAutostart(object sender, RoutedEventArgs e) => Autostart.Set(autostartBox.IsChecked == true);
+    void OnAutostart(object sender, RoutedEventArgs e)
+    {
+        if (Autostart.Set(autostartBox.IsChecked == true)) return;
+        autostartBox.IsChecked = Autostart.IsEnabled();
+        MessageBox.Show(this, "Windows has RingDeck's start-up switched off. Turn it on in Settings > Apps > Startup.", "RingDeck",
+            MessageBoxButton.OK, MessageBoxImage.Information);
+    }
 
     // ----- AI connections -----
 

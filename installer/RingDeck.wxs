@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
-  <Product Id="*" Name="RingDeck" Language="1033" Version="$(var.Version)" Manufacturer="muryl"
+  <Product Id="*" Name="RingDeck" Language="1033" Version="$(var.Version)" Manufacturer="Murylo Batista"
            UpgradeCode="5B1E7C3A-0C5E-4E0B-9C0F-7A6D1E2B9F44">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" InstallPrivileges="limited" Platform="x64"
              Description="Radial rings of macros, snippets and shortcuts" />

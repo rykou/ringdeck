@@ -76,6 +76,25 @@ jobs:
           Pop-Location
           Get-ChildItem dist
 
+      - name: Build the Microsoft Store package (MSIX)
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeappx) { throw "makeappx.exe (Windows SDK) not found on this runner" }
+          New-Item -ItemType Directory -Force msix/Assets | Out-Null
+          Copy-Item publish/RingDeck.exe, THIRD-PARTY-NOTICES.txt msix/
+          Copy-Item installer/msix/Assets/*.png msix/Assets/
+          (Get-Content installer/msix/AppxManifest.xml -Raw).Replace('__VERSION__', "$v.0") | Set-Content msix/AppxManifest.xml -Encoding utf8
+          & $makeappx.FullName pack /d msix /p "dist/RingDeck-$v.msix" /o
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Upload the Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: RingDeck-${{ steps.version.outputs.version }}-store
+          path: dist/*.msix
+          if-no-files-found: error
+
       - name: Upload the unsigned MSI
         id: unsigned
         uses: actions/upload-artifact@v4
@@ -115,3 +134,4 @@ jobs:
           gh release view $tag *> $null
           if ($LASTEXITCODE) { gh release create $tag --title "RingDeck $tag" --generate-notes --verify-tag }
           gh release upload $tag $msi.FullName --clobber
+          gh release upload $tag (Get-Item dist/*.msix).FullName --clobber

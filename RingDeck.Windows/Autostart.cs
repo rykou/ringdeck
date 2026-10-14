@@ -15,9 +15,38 @@ public static class Autostart
     /// <summary>One task per Windows user. The uninstaller deletes "RingDeck - [LogonUser]", so keep the two in step.</summary>
     static string TaskName => $"RingDeck - {Environment.UserName}";
 
-    public static bool IsEnabled() => Schtasks("/Query", "/TN", TaskName) == 0;
+    const string StoreTaskId = "RingDeckStartup";   // declared in the MSIX manifest
 
-    public static void Set(bool on)
+    public static bool IsEnabled()
+    {
+        if (!AppPackage.IsPackaged) return Schtasks("/Query", "/TN", TaskName) == 0;
+        var state = StoreTask()?.State;
+        return state is global::Windows.ApplicationModel.StartupTaskState.Enabled or global::Windows.ApplicationModel.StartupTaskState.EnabledByPolicy;
+    }
+
+    /// <summary>The Store version's startup task. Its API is asynchronous; waiting on a worker thread keeps the UI thread free.</summary>
+    static global::Windows.ApplicationModel.StartupTask? StoreTask()
+    {
+        try { return Task.Run(async () => await global::Windows.ApplicationModel.StartupTask.GetAsync(StoreTaskId)).GetAwaiter().GetResult(); }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>Turns start-with-Windows on or off. Returns false when Windows won't allow it (the user switched the
+    /// Store version off in Settings &gt; Apps &gt; Startup, which only the user can undo there).</summary>
+    public static bool Set(bool on)
+    {
+        if (AppPackage.IsPackaged)
+        {
+            if (StoreTask() is not { } task) return false;
+            if (!on) { task.Disable(); return true; }
+            var state = Task.Run(async () => await task.RequestEnableAsync()).GetAwaiter().GetResult();
+            return state is global::Windows.ApplicationModel.StartupTaskState.Enabled or global::Windows.ApplicationModel.StartupTaskState.EnabledByPolicy;
+        }
+        SetScheduledTask(on);
+        return true;
+    }
+
+    static void SetScheduledTask(bool on)
     {
         RemoveRunEntry();
         if (!on)
@@ -38,8 +67,9 @@ public static class Autostart
     /// <summary>Versions up to 0.1.3 used the Run key. Move such a setting over to the task once.</summary>
     public static void MigrateFromRunKey()
     {
+        if (AppPackage.IsPackaged) return;
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        if (key?.GetValue(RunName) is string) Set(true);
+        if (key?.GetValue(RunName) is string) SetScheduledTask(true);
     }
 
     static void RemoveRunEntry()

@@ -15,13 +15,21 @@ public sealed class TrayIcon : INotifier, IDisposable
         pause.CheckedChanged += (_, _) => setPaused(pause.Checked);
         var autostart = new WinForms.ToolStripMenuItem("Start with Windows") { CheckOnClick = true };
         var syncing = false;
-        autostart.CheckedChanged += (_, _) => { if (!syncing) Autostart.Set(autostart.Checked); };
+        autostart.CheckedChanged += (_, _) =>
+        {
+            if (syncing || Autostart.Set(autostart.Checked)) return;
+            syncing = true;
+            autostart.Checked = Autostart.IsEnabled();
+            syncing = false;
+            Notify("Start with Windows is switched off in Windows", "Turn RingDeck on in Settings > Apps > Startup.");
+        };
         var menu = new WinForms.ContextMenuStrip();
         menu.Items.Add("Open editor", null, (_, _) => openEditor());
         menu.Items.Add(pause);
         menu.Items.Add(autostart);
         menu.Items.Add(new WinForms.ToolStripSeparator());
-        menu.Items.Add("Buy me a coffee ☕", null, (_, _) => OpenLink("https://paypal.me/rykou893"));
+        if (!AppPackage.IsPackaged)                     // Store rules on payment links are strict; keep the Store version clean
+            menu.Items.Add("Buy me a coffee ☕", null, (_, _) => OpenLink("https://paypal.me/rykou893"));
         menu.Items.Add("Exit", null, (_, _) => exit());
         menu.Opening += (_, _) => { syncing = true; autostart.Checked = Autostart.IsEnabled(); syncing = false; };
         _icon = new WinForms.NotifyIcon
