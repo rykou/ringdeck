@@ -78,5 +78,7 @@ RingDeck is free. If it saves you time, you can [buy me a coffee ☕](https://pa
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Slice emoji come from Microsoft's [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) and icons
+from [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons), both MIT; see
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). To rebuild those assets, run `tools/make_icon_assets.mjs`.
 

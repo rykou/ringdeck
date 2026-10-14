@@ -112,14 +112,34 @@ public sealed class RingVisual : FrameworkElement
     static Color Contrast(Color background) =>
         0.299 * background.R + 0.587 * background.G + 0.114 * background.B > 150 ? Color.FromRgb(0x16, 0x16, 0x1A) : Colors.White;
 
-    static void DrawIcon(DrawingContext dc, Slice slice, Point at, double r, Color color, double dpi)
+    static void DrawIcon(DrawingContext dc, Slice slice, Point at, double r, Color color, double dpi) =>
+        DrawIcon(dc, slice.Icon, slice.Label, at, r, color, dpi);
+
+    /// <summary>Draws a slice icon of any kind: an emoji picture, an icon-font glyph, an imported image, a typed
+    /// character, or (when there is no icon) the label's first letter.</summary>
+    internal static void DrawIcon(DrawingContext dc, string icon, string label, Point at, double r, Color color, double dpi)
     {
-        if (slice.Icon.StartsWith("file:", StringComparison.Ordinal) && Image(slice.Icon) is { } image)
+        var picture = IconCatalog.Split(icon) switch
         {
-            var half = r * 0.62;
-            dc.DrawImage(image, new Rect(at.X - half, at.Y - half, half * 2, half * 2));
+            ("file", _) => Image(icon),
+            ("emoji", _) => IconAssets.EmojiPicture(icon),
+            _ => null,
+        };
+        if (picture is not null)
+        {
+            // Round crops from the image editor fill the slice; other pictures sit inside it.
+            var half = icon.EndsWith(".fill.png", StringComparison.OrdinalIgnoreCase) ? r : r * (icon.StartsWith("emoji:", StringComparison.Ordinal) ? 0.7 : 0.62);
+            dc.DrawImage(picture, new Rect(at.X - half, at.Y - half, half * 2, half * 2));
             return;
         }
+        if (IconCatalog.IconText(icon) is { Length: > 0 } fluent)
+        {
+            var glyphText = new FormattedText(fluent, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+                new Typeface(IconAssets.IconFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), r * 0.95, Theme.Frozen(color), dpi);
+            dc.DrawText(glyphText, new Point(at.X - glyphText.Width / 2, at.Y - glyphText.Height / 2));
+            return;
+        }
+        var slice = new Slice { Icon = icon, Label = label };
         var glyph = slice.Icon.StartsWith("glyph:", StringComparison.Ordinal) ? slice.Icon[6..] : "";
         var isLetter = glyph.Length == 0;
         if (isLetter) glyph = slice.Label.Trim().Length > 0 ? slice.Label.Trim()[..1].ToUpperInvariant() : "?";

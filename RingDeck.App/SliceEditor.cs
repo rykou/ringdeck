@@ -89,37 +89,51 @@ public partial class EditorWindow
     UIElement IconRow(Slice slice)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal };
-        var custom = new TextBox { Width = 60, MaxLength = 4, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Emoji, Segoe UI"), ToolTip = "Type any character or emoji", Margin = new Thickness(0, 0, 8, 0),
-            Text = slice.Icon.StartsWith("glyph:", StringComparison.Ordinal) ? slice.Icon[6..] : "" };
-        custom.TextChanged += (_, _) => { if (!_loading) slice.Icon = custom.Text.Length > 0 ? "glyph:" + custom.Text : ""; };
-        var grid = new UniformGrid { Columns = 10, Margin = new Thickness(8) };
-        var popup = new Popup { StaysOpen = false, Placement = PlacementMode.Bottom,
-            Child = new Border { Background = (Brush)Application.Current.Resources["StageBrush"], CornerRadius = new CornerRadius(8), Child = grid } };
-        foreach (var glyph in Glyphs.All)
+        var preview = new IconPreview { Icon = slice.Icon, Fill = slice.Color, Label = slice.Label, Width = 40, Height = 40, Margin = new Thickness(0, 0, 10, 0) };
+        var choose = new Button { Content = "Emoji & icons…", Margin = new Thickness(0, 0, 8, 0), ToolTip = "Pick from about 1,600 emoji and 2,500 icons" };
+        choose.Click += (_, _) =>
         {
-            var pick = new Button { Content = glyph, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 18,
-                Width = 36, Height = 36, Margin = new Thickness(2), Padding = new Thickness(0) };
-            pick.Click += (_, _) => { popup.IsOpen = false; slice.Icon = "glyph:" + glyph; ShowSlice(slice); Touch(); };
-            grid.Children.Add(pick);
-        }
-        var symbols = new Button { Content = "Symbols", Margin = new Thickness(0, 0, 8, 0) };
-        popup.PlacementTarget = symbols;
-        symbols.Click += (_, _) => popup.IsOpen = true;
-        var image = new Button { Content = "Image or app", ToolTip = "Use a picture, or the icon of a program or shortcut" };
+            var picker = new IconPickerWindow { Owner = this };
+            if (picker.ShowDialog() != true || picker.Result is null) return;
+            slice.Icon = picker.Result;
+            ShowSlice(slice);
+            Touch();
+        };
+        var image = new Button { Content = "Image…", ToolTip = "Use a picture, or the icon of a program or shortcut", Margin = new Thickness(0, 0, 8, 0) };
         image.Click += (_, _) =>
         {
             var dialog = new OpenFileDialog { Filter = "Images and programs|*.png;*.jpg;*.jpeg;*.ico;*.exe;*.lnk|All files|*.*" };
             if (dialog.ShowDialog(this) != true) return;
-            try { slice.Icon = _app.Icons.Import(dialog.FileName); ShowSlice(slice); Touch(); }
-            catch (Exception ex) when (ex is System.IO.IOException or InvalidOperationException or UnauthorizedAccessException or ArgumentException)
+            try
+            {
+                // Pictures and program icons go through the crop editor first.
+                var crop = new ImageCropWindow(IconStore.PictureBytes(dialog.FileName)) { Owner = this };
+                if (crop.ShowDialog() != true || crop.Result is not { } result) return;
+                slice.Icon = _app.Icons.ImportPng(result.Round ? result.Png : ToPng(result.Png), result.Round);
+                ShowSlice(slice);
+                Touch();
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or InvalidOperationException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Runtime.InteropServices.COMException)
             {
                 MessageBox.Show(this, ex.Message, "RingDeck", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         };
-        row.Children.Add(custom);
-        row.Children.Add(symbols);
+        var custom = new TextBox
+        {
+            Width = 48, MaxLength = 4, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Or type any character to use as the icon",
+            Text = slice.Icon.StartsWith("glyph:", StringComparison.Ordinal) ? slice.Icon[6..] : "",
+        };
+        custom.TextChanged += (_, _) =>
+        {
+            if (_loading) return;
+            slice.Icon = custom.Text.Length > 0 ? "glyph:" + custom.Text : "";
+            preview.Icon = slice.Icon;
+        };
+        preview.VerticalAlignment = choose.VerticalAlignment = image.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(preview);
+        row.Children.Add(choose);
         row.Children.Add(image);
-        row.Children.Add(popup);
+        row.Children.Add(custom);
         return row;
     }
 
@@ -327,5 +341,18 @@ public partial class EditorWindow
             Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["SubtleBrush"],
             Text = "Your selected text is sent between <text> and </text>. For rewrites, end the prompt with \"Reply with only the rewritten text.\" In the chat: Enter sends, Ctrl+Enter pastes the reply back, Esc closes.",
         });
+    }
+
+    /// <summary>Any picture the crop editor accepts, re-encoded as PNG (the icon store keeps PNGs).</summary>
+    static byte[] ToPng(byte[] bytes)
+    {
+        using var input = new System.IO.MemoryStream(bytes);
+        var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(input, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+        var frame = decoder.Frames.OrderByDescending(f => f.PixelWidth * f.PixelHeight).First();
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(frame));
+        using var output = new System.IO.MemoryStream();
+        encoder.Save(output);
+        return output.ToArray();
     }
 }

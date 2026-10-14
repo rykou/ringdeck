@@ -19,6 +19,9 @@
     <Using Include="System.IO" />
     <Using Include="System.Linq" />
     <Resource Include="../ringdeck.ico" Link="ringdeck.ico" />
+    <Resource Include="Assets/FluentSystemIcons-Regular.ttf" />
+    <Resource Include="Assets/icons.json" />
+    <Resource Include="Assets/emoji.zip" />
     <ProjectReference Include="../RingDeck.Core/RingDeck.Core.csproj" />
     <ProjectReference Include="../RingDeck.Windows/RingDeck.Windows.csproj" />
   </ItemGroup>

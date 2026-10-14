@@ -127,6 +127,7 @@ public partial class App : Application
                     _editor!.SaveShot(prefix + "-ring.png", false);
                     _editor.SaveShot(prefix + "-slice.png", true);
                     if (Config.AiConnections.FirstOrDefault() is { } c) await _editor.SaveConnectionShot(c, prefix + "-connection.png");
+                    await _editor.SavePickerShots(prefix);
                 }
                 catch (Exception ex) { Log(ex); }
                 _editor!.ProbeDropDown(prefix + "-probe.txt", ExitApp);

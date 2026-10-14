@@ -22,6 +22,48 @@ public partial class EditorWindow : Window
 
     int _touchCount;
 
+    /// <summary>Developer aid for `--shot-editor`: pictures of the icon picker and of a colour wheel.</summary>
+    internal async Task SavePickerShots(string prefix)
+    {
+        var picker = new IconPickerWindow { Owner = this, Left = 60, Top = 60, WindowStartupLocation = WindowStartupLocation.Manual };
+        picker.Show();
+        await Task.Delay(1200);
+        Shot((FrameworkElement)picker.Content, prefix + "-picker.png");
+        picker.Close();
+        var wheel = new ColorWheel { Width = 220, Height = 220 };
+        wheel.Show(System.Windows.Media.Color.FromRgb(0x4C, 0xC2, 0xFF));
+        var host = new Border { Child = wheel, Padding = new Thickness(14), Background = Theme.Frozen(System.Windows.Media.Color.FromRgb(0x14, 0x14, 0x1A)) };
+        host.Measure(new Size(260, 260));
+        host.Arrange(new Rect(0, 0, 248, 248));
+        Shot(host, prefix + "-wheel.png");
+        if (Environment.GetEnvironmentVariable("RINGDECK_SHOT_IMAGE") is { Length: > 0 } image && File.Exists(image))
+        {
+            var crop = new ImageCropWindow(File.ReadAllBytes(image)) { Owner = this, Left = 60, Top = 60, WindowStartupLocation = WindowStartupLocation.Manual };
+            crop.Show();
+            await Task.Delay(500);
+            var round = crop.ZoomAndCrop(2.2, 250, 120);
+            await Task.Delay(300);
+            Shot((FrameworkElement)crop.Content, prefix + "-crop.png");
+            File.WriteAllBytes(prefix + "-crop-result.png", round);
+            crop.Close();
+        }
+    }
+
+    static void Shot(FrameworkElement root, string path)
+    {
+        root.UpdateLayout();
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth + 32, (int)root.ActualHeight + 32, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+        var backdrop = new System.Windows.Media.DrawingVisual();
+        using (var dc = backdrop.RenderOpen())
+            dc.DrawRectangle(Theme.Frozen(System.Windows.Media.Color.FromRgb(0x20, 0x20, 0x20)), null, new Rect(0, 0, root.ActualWidth + 32, root.ActualHeight + 32));
+        bitmap.Render(backdrop);
+        bitmap.Render(root);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using var file = File.Create(path);
+        encoder.Save(file);
+    }
+
     /// <summary>Developer aid for `--shot-editor`: a picture of the connection dialog (opened without blocking, then closed).</summary>
     internal async Task SaveConnectionShot(AiConnection connection, string path)
     {

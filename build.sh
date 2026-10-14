@@ -41,7 +41,7 @@ fi
 # light.exe cannot write cabinets on a \\wsl.localhost path: package in a Windows temp folder, skip ICE validation.
 stage="$wintemp/ringdeck-msi"
 rm -rf "$stage" && mkdir -p "$stage/bin" dist
-cp publish/RingDeck.exe "$stage/bin/"
+cp publish/RingDeck.exe THIRD-PARTY-NOTICES.txt "$stage/bin/"
 cp installer/RingDeck.wxs installer/banner.bmp installer/dialog.bmp ringdeck.ico "$stage/"
 # light.exe cannot load its extensions' embedded cabinets from a \\wsl.localhost path: run WiX from a Windows-side copy.
 tools="$wintemp/ringdeck-wix3"

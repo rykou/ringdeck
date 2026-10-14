@@ -66,7 +66,7 @@ jobs:
         run: |
           $v = "${{ steps.version.outputs.version }}"
           New-Item -ItemType Directory -Force stage/bin, dist | Out-Null
-          Copy-Item publish/RingDeck.exe stage/bin/
+          Copy-Item publish/RingDeck.exe, THIRD-PARTY-NOTICES.txt stage/bin/
           Copy-Item installer/RingDeck.wxs, installer/banner.bmp, installer/dialog.bmp, ringdeck.ico stage/
           Push-Location stage
           ../wix/candle.exe -nologo -arch x64 -ext WixUtilExtension "-dVersion=$v" -dBinDir=bin -out RingDeck.wixobj RingDeck.wxs
