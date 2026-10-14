@@ -21,6 +21,7 @@ public sealed class TrayIcon : INotifier, IDisposable
         menu.Items.Add(pause);
         menu.Items.Add(autostart);
         menu.Items.Add(new WinForms.ToolStripSeparator());
+        menu.Items.Add("Buy me a coffee ☕", null, (_, _) => OpenLink("https://paypal.me/rykou893"));
         menu.Items.Add("Exit", null, (_, _) => exit());
         menu.Opening += (_, _) => { syncing = true; autostart.Checked = Autostart.IsEnabled(); syncing = false; };
         _icon = new WinForms.NotifyIcon
@@ -34,6 +35,12 @@ public sealed class TrayIcon : INotifier, IDisposable
     }
 
     /// <summary>Safe from any thread, and never blocks the caller.</summary>
+    static void OpenLink(string url)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true })?.Dispose(); }
+        catch (System.ComponentModel.Win32Exception) { }   // no default browser
+    }
+
     public void Notify(string title, string message) =>
         _ui.BeginInvoke(() => _icon.ShowBalloonTip(5000, title, message, WinForms.ToolTipIcon.Info));
 

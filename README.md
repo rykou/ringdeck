@@ -2,6 +2,9 @@
 
 Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut, flick toward a slice, release.
 
+[![Download](https://img.shields.io/github/v/release/rykou/ringdeck?label=Download&logo=windows)](https://github.com/rykou/ringdeck/releases/latest)
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-PayPal-003087?logo=paypal&logoColor=white)](https://paypal.me/rykou893)
+
 [![RingDeck: hold a shortcut, flick toward a slice, release](docs/demo.gif)](docs/demo.mp4)
 
 - Any number of rings, each on its own global shortcut (keyboard or mouse button).
@@ -68,6 +71,10 @@ are signed. Nothing built on a personal computer is.
 RingDeck does not send information to other computers, with one exception you control: when you use an AI chat slice,
 the text of that chat goes to the AI service you set up for that slice, and nowhere else. Your rings, snippets and
 settings stay on your PC, in `%APPDATA%\RingDeck`.
+
+## Support
+
+RingDeck is free. If it saves you time, you can [buy me a coffee ☕](https://paypal.me/rykou893). Thank you!
 
 ## License
 
