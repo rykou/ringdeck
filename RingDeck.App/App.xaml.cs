@@ -46,6 +46,19 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        var clip = Array.IndexOf(e.Args, "--clip-image");
+        if (clip >= 0 && clip + 1 < e.Args.Length)
+        {
+            // Developer aid: save the picture a webhook would send from the clipboard (and its name and type), then exit.
+            var image = new ClipboardService().GetImage();
+            if (image is not null) File.WriteAllBytes(e.Args[clip + 1], image.Data);
+            var teams = image is null ? null : ImageShrinker.Fit(image, Webhooks.TeamsImageBudget("A short message", ""));
+            if (teams is not null) File.WriteAllBytes(e.Args[clip + 1] + ".teams.jpg", teams.Data);
+            File.WriteAllText(e.Args[clip + 1] + ".txt", image is null ? "none\n"
+                : $"{image.FileName} {image.ContentType} {image.Data.Length}; for Teams: {teams?.Data.Length.ToString() ?? "does not fit"} bytes\n");
+            Shutdown();
+            return;
+        }
         var demo = Array.IndexOf(e.Args, "--ai-demo");
         if (demo >= 0 && demo + 2 < e.Args.Length)
         {
@@ -56,6 +69,18 @@ public partial class App : Application
             var connection = new AiConnection { Name = "Local test", Model = "demo-model", Endpoint = e.Args[demo + 1], ApiKey = Secrets.Protect("sk-demo") };
             var panel = AiPanel.Open(connection, new AiChatAction { Instruction = "Translate to English:" }, "Bom dia! Como vai o projeto?", IntPtr.Zero, (_, _) => { });
             _ = panel.SaveWhenDoneAsync(e.Args[demo + 2], TimeSpan.FromSeconds(20)).ContinueWith(_ => Dispatcher.Invoke(Shutdown));
+            return;
+        }
+        var trailShot = Array.IndexOf(e.Args, "--render-trail");
+        if (trailShot >= 0 && trailShot + 1 < e.Args.Length)
+        {
+            Store = new ConfigStore(DataDir);
+            Config = Store.Load().Config;
+            Icons = new IconStore(Store.IconsDir);
+            Theme.Apply(Config.Settings);
+            RenderProbe.RenderTrail(Config, e.Args[trailShot + 1], trailShot + 2 < e.Args.Length && int.TryParse(e.Args[trailShot + 2], out var depth) ? depth : 1,
+                trailShot + 3 < e.Args.Length && Enum.TryParse<RingStyle>(e.Args[trailShot + 3], true, out var trailStyle) ? trailStyle : null);
+            Shutdown();
             return;
         }
         var render = Array.IndexOf(e.Args, "--render");
@@ -120,6 +145,14 @@ public partial class App : Application
         var quietStart = e.Args.Contains("--tray") || AppPackage.StartedAtSignIn();
         if (loaded.FirstRun || !quietStart) ShowEditor();
 
+        var simulate = Array.IndexOf(e.Args, "--simulate");
+        if (simulate >= 0 && simulate + 1 < e.Args.Length && Config.Rings.FirstOrDefault() is { } first)
+        {
+            var folder = e.Args[simulate + 1];
+            var scenario = simulate + 2 < e.Args.Length ? e.Args[simulate + 2] : "tree";
+            Dispatcher.BeginInvoke(() => new Simulation(Controller, folder, ExitApp).Run(first, scenario), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            return;
+        }
         var shot = Array.IndexOf(e.Args, "--shot-editor");
         if (shot >= 0 && shot + 1 < e.Args.Length)
         {

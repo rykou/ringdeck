@@ -30,6 +30,8 @@ public sealed class GlobalSettings
     public bool Animations { get; set; } = true;
     public bool SpiralClose { get; set; } = true;
     public bool InstantPointer { get; set; }
+    /// <summary>Pointing at a slice that opens another ring opens it after a short pause (pushing past it still works).</summary>
+    public bool OpenNestedOnHover { get; set; } = true;
     /// <summary>A soft sound when a ring opens and when a slice is chosen. Off unless the user turns it on.</summary>
     public bool Sounds { get; set; }
     public double SoundVolume { get; set; } = 0.5;
@@ -45,6 +47,9 @@ public sealed class Ring
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "New ring";
+    /// <summary>Same kinds as a slice icon. Shown in the ring list, in the middle of the ring while nothing is chosen,
+    /// and on slices that open this ring when they have no icon of their own.</summary>
+    public string Icon { get; set; } = "";
     public string Shortcut { get; set; } = "";
     public OpenMode Mode { get; set; } = OpenMode.Hold;
     public OpenAt OpenAt { get; set; } = OpenAt.Pointer;
@@ -67,6 +72,9 @@ public sealed class Slice
     public string Label { get; set; } = "New slice";
     public string Icon { get; set; } = "";
     public string Color { get; set; } = "#2D2D3A";
+    /// <summary>How long the pointer must rest on the slice before it can run (0: at once). A circle fills around
+    /// the slice meanwhile; it guards against sending something by mistake.</summary>
+    public int ConfirmMs { get; set; }
     public SliceAction? Action { get; set; }
 }
 
@@ -76,6 +84,7 @@ public sealed class Slice
 [JsonDerivedType(typeof(LaunchAction), "launch")]
 [JsonDerivedType(typeof(NestedRingAction), "ring")]
 [JsonDerivedType(typeof(AiChatAction), "ai")]
+[JsonDerivedType(typeof(WebhookAction), "webhook")]
 public abstract class SliceAction { }
 
 public sealed class PasteTextAction : SliceAction
@@ -109,6 +118,7 @@ public sealed class NestedRingAction : SliceAction
 [JsonDerivedType(typeof(LaunchStep), "open")]
 [JsonDerivedType(typeof(FocusStep), "focus")]
 [JsonDerivedType(typeof(ClipboardStep), "clipboard")]
+[JsonDerivedType(typeof(WebhookStep), "webhook")]
 public abstract class MacroStep { }
 
 public sealed class KeyStep : MacroStep { public string Combo { get; set; } = ""; }
@@ -122,6 +132,38 @@ public sealed class LaunchStep : MacroStep { public string Target { get; set; } 
 public sealed class FocusStep : MacroStep { public string Program { get; set; } = ""; public string Title { get; set; } = ""; }
 /// <summary>Puts text on the clipboard and leaves it there.</summary>
 public sealed class ClipboardStep : MacroStep { public string Text { get; set; } = ""; }
+/// <summary>Sends a message (and optionally the clipboard image) to a web service.</summary>
+public sealed class WebhookStep : MacroStep { public WebRequest Request { get; set; } = new(); }
+
+/// <summary>Sends a message (and optionally the clipboard image) to a web service: a chat channel, a phone
+/// notification, a home automation or any web address.</summary>
+public sealed class WebhookAction : SliceAction { public WebRequest Request { get; set; } = new(); }
+
+public enum WebService { Discord, Slack, Teams, GoogleChat, Telegram, Ntfy, Pushover, HomeAssistant, Automation, Custom }
+
+public sealed class WebRequest
+{
+    public WebService Service { get; set; } = WebService.Discord;
+    /// <summary>The webhook or endpoint address. For most webhooks the address is the password, so it is stored
+    /// encrypted (like <see cref="Token"/> and <see cref="Target"/>) and left out of exports.</summary>
+    public string Url { get; set; } = "";
+    /// <summary>Telegram bot token, Pushover app token, or a bearer token (ntfy, Home Assistant, custom).</summary>
+    public string Token { get; set; } = "";
+    /// <summary>Telegram chat id or Pushover user key.</summary>
+    public string Target { get; set; } = "";
+    /// <summary>The text to send. Placeholders work, including {selection}.</summary>
+    public string Message { get; set; } = "{selection}";
+    /// <summary>Title (ntfy, Pushover, Teams, Home Assistant, automations) or the name to post as (Discord).</summary>
+    public string Title { get; set; } = "";
+    /// <summary>Also send the image on the clipboard, when there is one (services that accept files).</summary>
+    public bool SendImage { get; set; }
+    /// <summary>Custom only.</summary>
+    public string Method { get; set; } = "POST";
+    public List<AiHeader> Headers { get; set; } = new();
+    /// <summary>Custom only: the body. Placeholders work, plus {message}; inside JSON they are escaped.</summary>
+    public string Body { get; set; } = "{\"text\": \"{message}\"}";
+    public string ContentType { get; set; } = "application/json";
+}
 
 public enum AiFormat { OpenAi, Anthropic, Gemini, Custom }
 

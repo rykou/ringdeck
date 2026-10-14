@@ -18,7 +18,9 @@ public sealed class RingController : IDisposable
     readonly ActionRunner _runner;
     readonly ClipboardService _clipboard = new();
     readonly AiClient _ai = new();
-    readonly OverlayWindow _overlay = new();
+    /// <summary>One overlay window per ring on screen, indexed by depth (0: the ring the shortcut opened). A ring's
+    /// window never moves while the ring is up, so opening or closing another ring can't make it jump or blink.</summary>
+    readonly List<OverlayWindow> _windows = new();
     readonly HashSet<int> _swallowUp = new();
     readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     readonly Dispatcher _actions;          // a second STA thread: clipboard, SendInput and launching can block,
@@ -36,12 +38,11 @@ public sealed class RingController : IDisposable
         _notifier = notifier;
         _session = new RingSession(id => _config().Find(id));
         _input = new InputSender(_hook.IsPhysicallyDown);
-        _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier, focuser: new WindowFocuser(_input));
+        _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier, focuser: new WindowFocuser(_input),
+            webhooks: new WebhookClient(), reveal: App.Instance.Secrets.Reveal, selection: ct => SelectionGrabber.GrabAsync(_input, _clipboard, ct), shrink: ImageShrinker.Fit);
         _actions = StartActionThread();
         _hook.Error = App.Log;
-        _overlay.Current.FindRing = _overlay.Outgoing.FindRing = id => _config().Find(id);
-        _overlay.Show();
-        _overlay.Park();
+        WindowAt(3);                       // depths 0-3 ready before the first ring opens
         _hook.Key = OnKey;
         _hook.Install();
         _foregroundTimer.Tick += (_, _) => CheckForeground();
@@ -151,25 +152,35 @@ public sealed class RingController : IDisposable
         return RingPicker.Pick(rings, exe)?.Id;
     }
 
-    /// <summary>A click (or, for release, the shortcut key coming up) at the pointer. Choosing can move the session
-    /// to a child ring, so the centre is captured first for the transition.</summary>
+    /// <summary>A click (or, for release, the shortcut key coming up) at the pointer.</summary>
     void ChooseAtPointer(bool release)
     {
         var (x, y) = Pointer();
-        var (oldX, oldY) = (_session.CenterX, _session.CenterY);
-        Handle(release ? _session.Release(x, y) : _session.Choose(x, y), oldX, oldY);
+        Handle(release ? _session.Release(x, y) : _session.Choose(x, y));
     }
 
     (double X, double Y) Pointer()
     {
-        var (px, py) = Screens.Cursor();
+        var (px, py) = FakePointer ?? Screens.Cursor();
         return (px / _unit, py / _unit);
     }
+
+    // ----- developer aid: `--simulate` drives the controller with a scripted pointer instead of the mouse -----
+
+    /// <summary>When set, the pointer position (physical pixels) RingDeck uses instead of the real cursor.</summary>
+    internal (int X, int Y)? FakePointer { get; set; }
+    internal RingSession Session => _session;
+    internal double Unit => _unit;
+    internal IReadOnlyList<OverlayWindow> Windows => _windows;
+    internal void OpenForSimulation(Guid id) => OpenRing(id);
+    /// <summary>When set, a chosen slice is handed here instead of being run (nothing is pasted or sent).</summary>
+    internal Action<Slice>? DryRun { get; set; }
+    internal void ReleaseForSimulation() => ChooseAtPointer(true);
 
     void OpenRing(Guid id)
     {
         if (_config().Find(id) is not { Enabled: true } ring) return;
-        var (px, py) = Screens.Cursor();
+        var (px, py) = FakePointer ?? Screens.Cursor();
         _screen = Screens.At(px, py);
         if (ring.OpenAt == OpenAt.Center)
         {
@@ -179,11 +190,39 @@ public sealed class RingController : IDisposable
         }
         _dpiScale = _screen.DpiScale;
         _unit = _dpiScale * Math.Clamp(_config().Settings.Scale, 0.5, 2.0);
+        _session.HoverOpens = _config().Settings.OpenNestedOnHover;
         _session.Open(ring, px / _unit, py / _unit);
         ClampSession();
-        _overlay.Outgoing.Ring = null;
+        for (var i = 1; i < _windows.Count; i++) Hide(_windows[i]);
         ShowCurrent();
         Sound("open");
+    }
+
+    /// <summary>The overlay window for a depth, created the first time it is needed.</summary>
+    /// <remarks>Showing a window lets WPF render a frame meanwhile, and that frame asks for windows too: the window is
+    /// stored before it is shown, so it is never made twice. A few are made at start-up so opening a nested ring
+    /// never waits for one.</remarks>
+    OverlayWindow WindowAt(int depth)
+    {
+        while (_windows.Count <= depth)
+        {
+            var window = new OverlayWindow();
+            window.Current.FindRing = id => _config().Find(id);
+            _windows.Add(window);
+            window.Show();
+            window.Park();
+        }
+        return _windows[depth];
+    }
+
+    RingVisual CurrentVisual => WindowAt(_session.Depth).Current;
+
+    /// <summary>Puts a window away, empty, so when it is used again it can't show its old ring for a frame.</summary>
+    static void Hide(OverlayWindow window)
+    {
+        window.Current.Ring = null;
+        window.Redraw();
+        window.Park();
     }
 
     void Sound(string name)
@@ -192,8 +231,8 @@ public sealed class RingController : IDisposable
         if (settings.Sounds) SoundEffects.Play(name, settings.SoundVolume);
     }
 
-    /// <summary>Keeps the current ring, labels included, on the monitor it opened on. Child rings open at the
-    /// pointer, so they need this as much as the first ring does.</summary>
+    /// <summary>Keeps the current ring, labels included, on the monitor it opened on. Nested rings open further out,
+    /// so they need this as much as the first ring does.</summary>
     void ClampSession()
     {
         var (x, y) = RingGeometry.ClampCenter(_session.CenterX, _session.CenterY, _session.Radius + RingSession.SliceSize + 12,
@@ -201,63 +240,90 @@ public sealed class RingController : IDisposable
         _session.Recenter(x, y);
     }
 
+    /// <summary>Shows the session's current ring in the window for its depth, with the opening motion (a nested ring
+    /// grows out of the slice that opened it).</summary>
     void ShowCurrent()
     {
-        var visual = _overlay.Current;
+        var window = WindowAt(_session.Depth);
+        var visual = window.Current;
         visual.Ring = _session.Current;
         visual.Radius = _session.Radius;
-        visual.Selected = -1;
+        visual.Layout = _session.Layout;
+        visual.Link = _session.Link is { } link ? new System.Windows.Vector(link.X - _session.CenterX, link.Y - _session.CenterY) : null;
+        visual.GrowFrom = visual.Link;
+        visual.Dim = visual.DimTarget = 1;
         visual.Offset = default;
+        visual.Selected = -1;
+        visual.HoldProgress = 1;
         visual.Animator = new RingAnimator();
         visual.Animator.Open(_session.Current!.Slices.Count);
-        _overlay.Place((int)(_session.CenterX * _unit), (int)(_session.CenterY * _unit),
-            RingVisual.ExtentFor(_session.Radius), _dpiScale, _unit / _dpiScale);
+        // The window also has to hold the line back to the parent's slice.
+        var extent = Math.Max(RingVisual.ExtentFor(_session.Radius), (visual.Link?.Length ?? 0) + 40);
+        window.Place((int)(_session.CenterX * _unit), (int)(_session.CenterY * _unit), extent, _dpiScale, _unit / _dpiScale);
         StartTicking();
     }
 
-    /// <summary>The session moved to another ring (child or parent): fade the old one out where it was.</summary>
-    void Transition(double oldX, double oldY)
+    /// <summary>A nested slice opened its ring: the ring it came from stays where it is and fades back, and the new
+    /// one grows out of the slice in its own window.</summary>
+    void EnterChild()
     {
         ClampSession();
-        var current = _overlay.Current;
-        var outgoing = _overlay.Outgoing;
-        outgoing.Ring = current.Ring;
-        outgoing.Radius = current.Radius;
-        outgoing.Selected = current.Selected;
-        outgoing.Animator = current.Animator;
-        outgoing.Offset = new System.Windows.Vector(oldX - _session.CenterX, oldY - _session.CenterY);
-        outgoing.Animator.Close();
+        WindowAt(_session.Depth - 1).Current.DimTarget = 0.45;
         ShowCurrent();
+        Sound("open");
+    }
+
+    /// <summary>Back to an earlier ring: the rings after it shrink back into their slices, and it comes back to full
+    /// strength. It never left its place, so nothing else moves.</summary>
+    void BackToParent()
+    {
+        for (var depth = _session.Depth + 1; depth < _windows.Count; depth++)
+        {
+            var visual = _windows[depth].Current;
+            if (visual.Ring is null) continue;
+            visual.GrowFrom = visual.Link;
+            visual.Animator.Close();
+        }
+        CurrentVisual.DimTarget = 1;
     }
 
     void GoBack()
     {
-        var (x, y) = (_session.CenterX, _session.CenterY);
-        if (_session.Back()) Transition(x, y);
-        else _overlay.Current.Animator.Close();
+        if (_session.Back()) BackToParent();
+        else CloseAll();
     }
 
     void CloseRing()
     {
         _session.Close();
-        _overlay.Current.Animator.Close();
+        CloseAll();
     }
 
-    void Handle(ChooseResult result, double oldX, double oldY)
+    /// <summary>The whole session ended: every ring on screen closes.</summary>
+    void CloseAll()
+    {
+        foreach (var window in _windows) if (window.Current.Ring is not null) window.Current.Animator.Close();
+    }
+
+    void Handle(ChooseResult result)
     {
         switch (result.Kind)
         {
             case ChooseKind.None:
+            case ChooseKind.NotReady:            // the slice's circle hasn't filled yet: the ring stays open
                 return;
             case ChooseKind.EnteredNested:
-                Transition(oldX, oldY);
-                Sound("open");
+                EnterChild();
+                return;
+            case ChooseKind.WentBack:            // released or clicked in the gap towards the parent ring
+                BackToParent();
                 return;
         }
         if (result.Kind == ChooseKind.Run) Sound("select");
-        _overlay.Current.Animator.Close();
+        CloseAll();
         if (result.Kind == ChooseKind.MissingRing)
             _notifier.Notify($"\"{result.Slice?.Label}\" has nothing to open", "The ring it points to was deleted or has no slices.");
+        if (result.Kind == ChooseKind.Run && result.Slice is { } dry && DryRun is { } record) { record(dry); return; }
         if (result.Kind == ChooseKind.Run && result.Slice is { Action: AiChatAction ai } aiSlice)
         {
             OpenAi(aiSlice, ai);
@@ -370,25 +436,39 @@ public sealed class RingController : IDisposable
         if (dt <= 0) return;                      // WPF can raise Rendering twice for one frame
         _lastFrame = now;
         var settings = _config().Settings;
-        var current = _overlay.Current;
         double? target = null;
         if (_session.IsOpen)
         {
             var (x, y) = Pointer();
-            var (oldX, oldY) = (_session.CenterX, _session.CenterY);
-            if (_session.PointerMoved(x, y)) { Transition(oldX, oldY); current = _overlay.Current; }
+            switch (_session.PointerMoved(x, y))
+            {
+                case PointerChange.Entered: EnterChild(); break;
+                case PointerChange.WentBack: BackToParent(); break;
+            }
+            var current = CurrentVisual;
             current.Selected = _session.Selected;
+            current.HoldProgress = _session.HoldProgress;
             double dx = x - _session.CenterX, dy = y - _session.CenterY;
             if (dx * dx + dy * dy >= RingSession.DeadZone * RingSession.DeadZone) target = RingGeometry.AngleOf(dx, dy);
         }
-        current.Animator.Tick(dt, target, current.Selected, settings.Animations, settings.InstantPointer, settings.SpiralClose);
-        _overlay.Outgoing.Animator.Tick(dt, null, -1, settings.Animations, settings.InstantPointer, settings.SpiralClose);
-        _overlay.Redraw();
-        if (!_session.IsOpen && current.Animator.Phase == AnimPhase.Hidden && _overlay.Outgoing.Animator.Phase == AnimPhase.Hidden)
+        var anyShown = false;
+        for (var depth = 0; depth < _windows.Count; depth++)
+        {
+            var window = _windows[depth];
+            var visual = window.Current;
+            if (visual.Ring is null) continue;
+            var isCurrent = _session.IsOpen && depth == _session.Depth;
+            // Rings of the trail, and rings closing, keep the slice that led on highlighted.
+            visual.Animator.Tick(dt, isCurrent ? target : null, visual.Selected, settings.Animations, settings.InstantPointer, settings.SpiralClose);
+            visual.Dim += (visual.DimTarget - visual.Dim) * Math.Min(1, dt * 14);
+            if (visual.Animator.Phase == AnimPhase.Hidden && (!_session.IsOpen || depth > _session.Depth)) { Hide(window); continue; }
+            anyShown = true;
+            window.Redraw();
+        }
+        if (!_session.IsOpen && !anyShown)
         {
             CompositionTarget.Rendering -= OnFrame;
             _ticking = false;
-            _overlay.Park();
         }
     }
 
@@ -401,6 +481,6 @@ public sealed class RingController : IDisposable
         CancelRunning();
         _actions.BeginInvokeShutdown(DispatcherPriority.Normal);
         if (_ticking) CompositionTarget.Rendering -= OnFrame;
-        _overlay.Close();
+        foreach (var window in _windows) window.Close();
     }
 }

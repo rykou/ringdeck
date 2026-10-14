@@ -25,14 +25,11 @@ public sealed class OverlayWindow : Window
         IsHitTestVisible = false;
         Left = Top = -32000;
         Width = Height = 16;
-        var grid = new Grid { LayoutTransform = _userScale };
-        grid.Children.Add(Outgoing);
-        grid.Children.Add(Current);
-        Content = grid;
+        Content = new Grid { LayoutTransform = _userScale, Children = { Current } };
     }
 
+    /// <summary>The one ring this window shows (each ring on screen has a window of its own).</summary>
     public RingVisual Current { get; } = new();
-    public RingVisual Outgoing { get; } = new();
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -51,9 +48,5 @@ public sealed class OverlayWindow : Window
 
     public void Park() => Screens.Park(_hwnd);
 
-    public void Redraw()
-    {
-        Current.InvalidateVisual();
-        Outgoing.InvalidateVisual();
-    }
+    public void Redraw() => Current.InvalidateVisual();
 }

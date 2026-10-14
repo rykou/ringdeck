@@ -17,11 +17,14 @@ Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut
 |---|---|
 | Hold a ring's shortcut, move toward a slice, release | Runs the slice |
 | Release in the centre, or press Esc | Closes the ring |
-| Push the pointer well past a slice that opens another ring | Enters that ring |
-| Right click or Backspace | Back one ring |
+| Point at a slice that opens another ring (or push past it) | That ring grows out of the slice, linked to this one, which stays on screen |
+| Move back onto an earlier ring | The rings after it fold away |
+| Point back toward the previous ring and click, or right click, or Backspace | Back one ring |
 | Esc while a macro is playing | Stops the macro |
+| A slice with a wait (a circle around it) | Keep pointing until the circle fills, then release or click; let go early and nothing runs |
 
-Rings come in five styles (Settings → Ring style, or per ring): Classic, plus Soft, Clean, Neon and Labels.
+Rings can have an icon of their own: it shows in the ring list, in the middle of the ring, and on slices that open
+that ring. Rings come in five styles (Settings → Ring style, or per ring): Classic, plus Soft, Clean, Neon and Labels.
 
 Placeholders in pasted and typed text: `{date}`, `{time}`, `{datetime}`, `{clipboard}`, with optional formats such as
 `{date:yyyy-MM-dd}`. Type `{{` for a literal brace.
@@ -41,6 +44,23 @@ OpenRouter, Groq and others), Anthropic, Google Gemini, or any HTTP API through 
 
 Make as many slices as you like, each on its own connection and instruction. Keys are encrypted for your Windows
 account and are never included when you export rings.
+
+## Web request slices
+
+A slice (or a workflow step) can send a message to a web service: **Discord, Slack** (and Mattermost or
+Rocket.Chat), **Microsoft Teams, Google Chat, Telegram, ntfy, Pushover, Home Assistant**, an automation in **n8n,
+Make, Zapier or IFTTT**, or any web address with your own method, headers and body.
+
+1. Set a slice's **When chosen** to **Send to a web service** and pick the service. The editor says where to find the
+   webhook URL or token for it.
+2. Write the message. `{selection}` is the text selected where you used the ring; `{clipboard}`, `{date}` and
+   `{time}` work too.
+3. For Discord, Telegram, ntfy, Pushover, Teams and the automations, tick **Also send the picture on the clipboard**: take a
+   screenshot with Win+Shift+S, open the ring and flick, and the picture is posted with your message.
+   Teams only takes small messages, so there the picture is made smaller to fit.
+
+New web request slices wait 1 second before they can run (a circle fills while you point at them), so nothing is sent by a slip of the mouse; any slice can have a wait, under **Wait before it can run**. **Send a test** checks it from the editor. Webhook addresses and tokens are encrypted for your Windows account and are
+never included when you export rings, since anyone with a webhook URL can post to that channel.
 
 ## Limits
 

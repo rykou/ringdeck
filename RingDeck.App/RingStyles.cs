@@ -30,7 +30,7 @@ public sealed partial class RingVisual
     void DrawStyled(DrawingContext dc, Ring ring, RingStyle style)
     {
         var pose = Animator.Pose;
-        var center = new Point(ActualWidth / 2 + Offset.X, ActualHeight / 2 + Offset.Y);
+        var center = LiveCenter;
         var hover = Selected >= 0 && Selected < Animator.SliceScales.Count
             ? Math.Clamp((Animator.SliceScales[Selected] - 1) / (RingAnimator.SelectedScale - 1), 0, 1) : 0;
         var f = new Frame
@@ -51,7 +51,7 @@ public sealed partial class RingVisual
         dc.Pop();
     }
 
-    double AngleOf(int i, Frame f) => RingGeometry.SliceAngle(i, f.Count) + Animator.Pose.Rotation;
+    double AngleOf(int i, Frame f) => L.Angle(i) + Animator.Pose.Rotation;
 
     Point PositionOf(int i, Frame f) => Along(f.Center, AngleOf(i, f), f.Spread);
 
@@ -79,7 +79,7 @@ public sealed partial class RingVisual
             Geometry disc = new EllipseGeometry(f.Center, outer, outer);
             if (Selected >= 0 && Selected < f.Count && f.Count > 1)
             {
-                var half = 180.0 / f.Count;
+                var half = L.Step / 2;
                 var wedge = Sector(f.Center, 0, outer, AngleOf(Selected, f) - half, AngleOf(Selected, f) + half);
                 disc = new CombinedGeometry(GeometryCombineMode.Exclude, disc, wedge);
                 dc.DrawGeometry(RadialFade(f.Center, outer, Color.FromArgb((byte)(0x50 * f.Hover), f.Accent.R, f.Accent.G, f.Accent.B), Hub / outer), null, wedge);
@@ -99,14 +99,15 @@ public sealed partial class RingVisual
             var r = RingSession.SliceSize / 2 * SizeOf(i, f, 1.15, 1.15, 0.25);
             var selected = i == Selected;
             if (i == Faded) dc.PushOpacity(0.25);
-            if (slice.Action is NestedRingAction nested) Grandchildren(f, nested, at, r + 1, 9, _ => border);
+            if (Dim >= 1 && slice.Action is NestedRingAction nested) Grandchildren(f, nested, at, r + 1, 9, _ => border);
             var fill = Theme.Parse(slice.Color, Color.FromRgb(0x2D, 0x2D, 0x3A));
             if (selected) fill = Mix(fill, f.Accent, 0.45 * f.Hover);
             Shadow(dc, at + new Vector(2, 2), r, 10, 0.5);
             dc.DrawEllipse(Theme.Frozen(fill), new Pen(Theme.Frozen(selected ? Mix(border, f.Accent, f.Hover) : border), 1), at, r, r);
-            DrawIcon(dc, slice, at, r, Contrast(fill), f.Dpi);
+            DrawIcon(dc, IconOf(slice), slice.Label, at, r, Contrast(fill), f.Dpi);
+            HoldRing(dc, slice, i, at, r, f.Accent);
             if (f.Ring.ShowLabels && slice.Label.Length > 0)
-                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 4), 11, Theme.Frozen(Colors.White), 120, f.Dpi, false, true);
+                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 4 + (slice.ConfirmMs > 0 ? 10 : 0)), 11, Theme.Frozen(Colors.White), 120, f.Dpi, false, true);
             if (i == Faded) dc.Pop();
         }
         CentreLabel(f, Contrast(centre), null, hub);
@@ -149,15 +150,16 @@ public sealed partial class RingVisual
                 r *= 0.85;
                 Shadow(dc, at + new Vector(0, 5), r, 10, 0.3);
                 dc.DrawEllipse(Theme.Frozen(centre), null, at, r, r);
-                DrawIcon(dc, slice, at, r, Contrast(centre), f.Dpi);
+                DrawIcon(dc, IconOf(slice), slice.Label, at, r, Contrast(centre), f.Dpi);
             }
             else
             {
                 Shadow(dc, at + new Vector(0, 3), r * 0.75, r * 0.5, 0.45);
-                DrawIcon(dc, slice, at, r, iconColour, f.Dpi);
+                DrawIcon(dc, IconOf(slice), slice.Label, at, r, iconColour, f.Dpi);
             }
+            HoldRing(dc, slice, i, at, r, f.Accent);
             if (f.Ring.ShowLabels && slice.Label.Length > 0)
-                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 2), 11, Theme.Frozen(Colors.White), 120, f.Dpi, false, true);
+                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 2 + (slice.ConfirmMs > 0 ? 10 : 0)), 11, Theme.Frozen(Colors.White), 120, f.Dpi, false, true);
             if (i == Faded) dc.Pop();
         }
         CentreLabel(f, Contrast(centre), null, Hub);
@@ -174,7 +176,7 @@ public sealed partial class RingVisual
 
         if (f.Count > 1 && outer > inner)
         {
-            var half = 180.0 / f.Count;
+            var half = L.Step / 2;
             if (Selected >= 0 && Selected < f.Count)
             {
                 var wedge = new RadialGradientBrush { MappingMode = BrushMappingMode.Absolute, Center = f.Center, GradientOrigin = f.Center, RadiusX = outer, RadiusY = outer };
@@ -195,6 +197,7 @@ public sealed partial class RingVisual
                 var a = AngleOf(i, f) + half;
                 dc.DrawLine(pen, Along(f.Center, a, inner), Along(f.Center, a, outer));
             }
+            if (!L.IsFull) dc.DrawLine(pen, Along(f.Center, AngleOf(0, f) - half, inner), Along(f.Center, AngleOf(0, f) - half, outer));
         }
 
         // The resting ring turns slowly in grey; when a slice is chosen a bright one, twice as big, spins fast.
@@ -230,7 +233,8 @@ public sealed partial class RingVisual
             if (i == Faded) dc.PushOpacity(0.25);
             Shadow(dc, at, r * 0.9, r * 0.6, 0.25);
             Halo(dc, at, r * (selected ? 1.15 : 0.95), glow, selected ? 0.55 + 0.25 * f.Hover : 0.4);
-            DrawIcon(dc, slice, at, r * 0.9, Colors.White, f.Dpi);
+            DrawIcon(dc, IconOf(slice), slice.Label, at, r * 0.9, Colors.White, f.Dpi);
+            HoldRing(dc, slice, i, at, r * 0.9, f.Accent);
             if (slice.Action is NestedRingAction)
             {
                 var dot = Along(f.Center, AngleOf(i, f), f.Spread + r + 8);
@@ -238,7 +242,7 @@ public sealed partial class RingVisual
                 dc.DrawEllipse(Theme.Frozen(Colors.White), null, dot, 2.2, 2.2);
             }
             if (f.Ring.ShowLabels && slice.Label.Length > 0)
-                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 3), 11, Theme.Frozen(Colors.White), 120, f.Dpi, false, Color.FromArgb(0x28, glow.R, glow.G, glow.B), true);
+                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 3 + (slice.ConfirmMs > 0 ? 10 : 0)), 11, Theme.Frozen(Colors.White), 120, f.Dpi, false, Color.FromArgb(0x28, glow.R, glow.G, glow.B), true);
             if (i == Faded) dc.Pop();
         }
         CentreLabel(f, Colors.White, Color.FromArgb(0x38, glow.R, glow.G, glow.B), Hub * 1.2);
@@ -253,6 +257,7 @@ public sealed partial class RingVisual
         var pillFill = Color.FromRgb(0x33, 0x33, 0x33);
         Shadow(dc, f.Center, Hub, 15, 0.4);
         dc.DrawEllipse(Theme.Frozen(centre), null, f.Center, Hub, Hub);
+        HubIcon(f, Contrast(centre), Hub);
 
         // Pills first, so every button sits on top of its own pill and of its neighbours' pills.
         var radii = new double[f.Count];
@@ -305,11 +310,12 @@ public sealed partial class RingVisual
             var hue = Norm(AngleOf(i, f));
             var r = radii[i];
             if (i == Faded) dc.PushOpacity(0.25);
-            if (slice.Action is NestedRingAction nested) Grandchildren(f, nested, at, r * 0.95, 6, _ => Hsl(hue, 0.5, 0.8));
+            if (Dim >= 1 && slice.Action is NestedRingAction nested) Grandchildren(f, nested, at, r * 0.95, 6, _ => Hsl(hue, 0.5, 0.8));
             var fill = Hsl(hue, 0.5, i == Selected ? 0.8 + 0.1 * f.Hover : 0.8);
             Shadow(dc, at, r, 12, 0.4);
             dc.DrawEllipse(Theme.Frozen(fill), null, at, r, r);
-            DrawIcon(dc, slice, at, r, Ink, f.Dpi);
+            DrawIcon(dc, IconOf(slice), slice.Label, at, r, Ink, f.Dpi);
+            HoldRing(dc, slice, i, at, r, f.Accent);
             if (i == Faded) dc.Pop();
         }
     }
@@ -319,8 +325,14 @@ public sealed partial class RingVisual
     /// <summary>The selected slice's name in the middle of the ring.</summary>
     void CentreLabel(Frame f, Color colour, Color? glow, double hub)
     {
-        if (Selected < 0 || Selected >= f.Count) return;
+        if (Selected < 0 || Selected >= f.Count) { HubIcon(f, colour, hub); return; }
         DrawText(f.Dc, f.Ring.Slices[Selected].Label, f.Center, 12.5, Theme.Frozen(colour), hub * 2 - 12, f.Dpi, true, glow, glow is not null);
+    }
+
+    /// <summary>The ring's own icon in the middle, while nothing is chosen.</summary>
+    void HubIcon(Frame f, Color colour, double hub)
+    {
+        if (Selected < 0 && f.Ring.Icon.Length > 0) DrawIcon(f.Dc, f.Ring.Icon, f.Ring.Name, f.Center, hub * 0.72, colour, f.Dpi);
     }
 
     /// <summary>Small dots peeking out behind a slice that opens another ring, one per slice of that ring, in the

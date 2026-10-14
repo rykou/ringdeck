@@ -31,3 +31,20 @@ public class RingStyleTests
         Assert.Null(config.Rings[0].Style);
     }
 }
+
+public class RingIconTests
+{
+    [Fact]
+    public void RingIconsAreSavedAndImportedLikeSliceIcons()
+    {
+        var back = ConfigStore.FromJson(ConfigStore.ToJson(new AppConfig { Rings = { new Ring { Icon = "emoji:1f680" } } }))!;
+        Assert.Equal("emoji:1f680", back.Rings[0].Icon);
+        Assert.Equal("", ConfigStore.FromJson("""{ "rings": [ { "icon": null } ] }""")!.Rings[0].Icon);
+
+        // pictures are not part of an export, so an imported ring drops a picture icon but keeps an emoji
+        var target = new AppConfig();
+        var added = ConfigTransfer.Import(target, new AppConfig { Rings = { new Ring { Icon = "file:abc.png" }, new Ring { Icon = "emoji:1f680" } } });
+        Assert.Equal("", added[0].Icon);
+        Assert.Equal("emoji:1f680", added[1].Icon);
+    }
+}

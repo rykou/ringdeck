@@ -11,12 +11,12 @@ namespace RingDeck.App;
 
 public partial class EditorWindow
 {
-    static readonly string[] ActionNames = { "Nothing", "Paste text", "Macro / workflow", "Open app, file or link", "Open another ring", "AI chat" };
+    static readonly string[] ActionNames = { "Nothing", "Paste text", "Macro / workflow", "Open app, file or link", "Open another ring", "AI chat", "Send to a web service (Discord, Slack, phone…)" };
     MacroRecorder? _recorder;
 
     static int ActionIndex(SliceAction? action) => action switch
     {
-        PasteTextAction => 1, MacroAction => 2, LaunchAction => 3, NestedRingAction => 4, AiChatAction => 5, _ => 0,
+        PasteTextAction => 1, MacroAction => 2, LaunchAction => 3, NestedRingAction => 4, AiChatAction => 5, WebhookAction => 6, _ => 0,
     };
 
     static TextBlock Caption(string text) => new() { Text = text, Style = (Style)Application.Current.Resources["Caption"] };
@@ -55,7 +55,7 @@ public partial class EditorWindow
         add.Add(Caption("Label"));
         add.Add(Bound(new TextBox(), TextBox.TextProperty, slice, nameof(Slice.Label)));
         add.Add(Caption("Icon"));
-        add.Add(IconRow(slice));
+        add.Add(IconRow(() => slice.Icon, v => slice.Icon = v, slice.Color, slice.Label, () => ShowSlice(slice)));
         add.Add(Caption("Colour"));
         add.Add(Bound(new ColorField(), ColorField.ValueProperty, slice, nameof(Slice.Color)));
 
@@ -67,8 +67,10 @@ public partial class EditorWindow
             if (_loading || kind.SelectedIndex == ActionIndex(slice.Action)) return;
             slice.Action = kind.SelectedIndex switch
             {
-                1 => new PasteTextAction(), 2 => new MacroAction(), 3 => new LaunchAction(), 4 => new NestedRingAction(), 5 => NewAiAction(), _ => null,
+                1 => new PasteTextAction(), 2 => new MacroAction(), 3 => new LaunchAction(), 4 => new NestedRingAction(), 5 => NewAiAction(), 6 => new WebhookAction(), _ => null,
             };
+            // Sending to other people is the action most worth guarding against a slip of the mouse.
+            if (slice.Action is WebhookAction && slice.ConfirmMs == 0) slice.ConfirmMs = 1000;
             ShowSlice(slice);
             Touch();
         };
@@ -81,22 +83,25 @@ public partial class EditorWindow
             case LaunchAction launch: LaunchEditor(launch); break;
             case NestedRingAction nested: NestedEditor(nested); break;
             case AiChatAction ai: AiEditor(ai); break;
+            case WebhookAction hook: WebhookEditor(hook); break;
         }
+        if (slice.Action is not null) ConfirmEditor(slice);
     }
 
     // ----- icon -----
 
-    UIElement IconRow(Slice slice)
+    /// <summary>Icon buttons for a slice or a ring: a preview, the picker, an image, or a typed character.</summary>
+    internal UIElement IconRow(Func<string> get, Action<string> set, string fill, string label, Action refresh)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal };
-        var preview = new IconPreview { Icon = slice.Icon, Fill = slice.Color, Label = slice.Label, Width = 40, Height = 40, Margin = new Thickness(0, 0, 10, 0) };
+        var preview = new IconPreview { Icon = get(), Fill = fill, Label = label, Width = 40, Height = 40, Margin = new Thickness(0, 0, 10, 0) };
         var choose = new Button { Content = "Emoji & icons…", Margin = new Thickness(0, 0, 8, 0), ToolTip = "Pick from about 1,600 emoji and 2,500 icons" };
         choose.Click += (_, _) =>
         {
             var picker = new IconPickerWindow { Owner = this };
             if (picker.ShowDialog() != true || picker.Result is null) return;
-            slice.Icon = picker.Result;
-            ShowSlice(slice);
+            set(picker.Result);
+            refresh();
             Touch();
         };
         var image = new Button { Content = "Image…", ToolTip = "Use a picture, or the icon of a program or shortcut", Margin = new Thickness(0, 0, 8, 0) };
@@ -109,8 +114,8 @@ public partial class EditorWindow
                 // Pictures and program icons go through the crop editor first.
                 var crop = new ImageCropWindow(IconStore.PictureBytes(dialog.FileName)) { Owner = this };
                 if (crop.ShowDialog() != true || crop.Result is not { } result) return;
-                slice.Icon = _app.Icons.ImportPng(result.Round ? result.Png : ToPng(result.Png), result.Round);
-                ShowSlice(slice);
+                set(_app.Icons.ImportPng(result.Round ? result.Png : ToPng(result.Png), result.Round));
+                refresh();
                 Touch();
             }
             catch (Exception ex) when (ex is System.IO.IOException or InvalidOperationException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Runtime.InteropServices.COMException)
@@ -121,13 +126,13 @@ public partial class EditorWindow
         var custom = new TextBox
         {
             Width = 48, MaxLength = 4, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Or type any character to use as the icon",
-            Text = slice.Icon.StartsWith("glyph:", StringComparison.Ordinal) ? slice.Icon[6..] : "",
+            Text = get().StartsWith("glyph:", StringComparison.Ordinal) ? get()[6..] : "",
         };
         custom.TextChanged += (_, _) =>
         {
             if (_loading) return;
-            slice.Icon = custom.Text.Length > 0 ? "glyph:" + custom.Text : "";
-            preview.Icon = slice.Icon;
+            set(custom.Text.Length > 0 ? "glyph:" + custom.Text : "");
+            preview.Icon = get();
         };
         preview.VerticalAlignment = choose.VerticalAlignment = image.VerticalAlignment = VerticalAlignment.Center;
         row.Children.Add(preview);
@@ -135,6 +140,33 @@ public partial class EditorWindow
         row.Children.Add(image);
         row.Children.Add(custom);
         return row;
+    }
+
+    static readonly (int Ms, string Text)[] ConfirmChoices =
+    {
+        (0, "No: it runs as soon as it's chosen"), (500, "Half a second"), (1000, "1 second"), (1500, "1.5 seconds"),
+        (2000, "2 seconds"), (3000, "3 seconds"), (5000, "5 seconds"),
+    };
+
+    /// <summary>The hover wait: how long the pointer must rest on the slice before it can run.</summary>
+    void ConfirmEditor(Slice slice)
+    {
+        slicePanel.Children.Add(Caption("Wait before it can run"));
+        var known = Array.FindIndex(ConfirmChoices, c => c.Ms == slice.ConfirmMs);
+        var items = ConfirmChoices.Select(c => c.Text).ToList();
+        if (known < 0) items.Add($"{slice.ConfirmMs / 1000.0:0.#} seconds");
+        var combo = new ComboBox { ItemsSource = items, SelectedIndex = known >= 0 ? known : items.Count - 1 };
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (_loading || combo.SelectedIndex < 0 || combo.SelectedIndex >= ConfirmChoices.Length) return;
+            slice.ConfirmMs = ConfirmChoices[combo.SelectedIndex].Ms;
+        };
+        slicePanel.Children.Add(combo);
+        slicePanel.Children.Add(new TextBlock
+        {
+            Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["SubtleBrush"],
+            Text = "Guards against choosing it by mistake. A circle fills around the slice while you point at it, and it only runs once the circle is full. Let go of the shortcut too early and the ring closes without running it.",
+        });
     }
 
     // ----- action editors -----
@@ -221,6 +253,7 @@ public partial class EditorWindow
         AddButton("Open", () => new LaunchStep());
         AddButton("Focus window", () => new FocusStep());
         AddButton("Set clipboard", () => new ClipboardStep());
+        AddButton("Web request", () => new WebhookStep());
         var record = new Button { Content = "Record", Margin = new Thickness(0, 0, 6, 6), ToolTip = "Records the keys you press in any window, without their timing" };
         record.Click += (_, _) =>
         {
@@ -275,7 +308,7 @@ public partial class EditorWindow
             Text = step switch
             {
                 KeyStep => "Keys", TextStep => "Type", PasteStep => "Paste", DelayStep => "Wait (ms)",
-                LaunchStep => "Open", FocusStep => "Focus", ClipboardStep => "Clipboard", _ => "",
+                LaunchStep => "Open", FocusStep => "Focus", ClipboardStep => "Clipboard", WebhookStep => "Send", _ => "",
             } };
         DockPanel.SetDock(label, Dock.Left);
         row.Children.Add(label);
@@ -290,6 +323,7 @@ public partial class EditorWindow
                 TextBox.TextProperty, clip, nameof(ClipboardStep.Text)),
             LaunchStep launch => OpenStepEditor(launch),
             FocusStep focus => FocusStepEditor(focus),
+            WebhookStep hook => WebhookStepEditor(hook),
             _ => new TextBlock(),
         });
         return row;

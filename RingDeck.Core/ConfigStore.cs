@@ -104,6 +104,26 @@ public sealed class ConfigStore
         catch (UnauthorizedAccessException) { return null; }
     }
 
+    static WebRequest Normalise(WebRequest? r)
+    {
+        r ??= new WebRequest();
+        if (!Enum.IsDefined(r.Service)) r.Service = WebService.Custom;
+        r.Url ??= ""; r.Token ??= ""; r.Target ??= ""; r.Message ??= ""; r.Title ??= "";
+        r.Method ??= "POST"; r.Body ??= ""; r.ContentType ??= "";
+        r.Headers = (r.Headers ?? new()).Where(h => h is not null).ToList();
+        foreach (var h in r.Headers) { h.Name ??= ""; h.Value ??= ""; }
+        return r;
+    }
+
+    /// <summary>Every web request in the config: webhook slices and webhook steps of workflows.</summary>
+    public static IEnumerable<WebRequest> WebRequests(AppConfig config) =>
+        config.Rings.SelectMany(r => r.Slices).SelectMany(s => s.Action switch
+        {
+            WebhookAction hook => new[] { hook.Request },
+            MacroAction macro => macro.Steps.OfType<WebhookStep>().Select(w => w.Request),
+            _ => Enumerable.Empty<WebRequest>(),
+        });
+
     static AppConfig Normalise(AppConfig config)
     {
         if (config.Version < 1) config.Version = 1;
@@ -134,6 +154,7 @@ public sealed class ConfigStore
         {
             if (ring.Id == Guid.Empty || !seen.Add(ring.Id)) { ring.Id = Guid.NewGuid(); seen.Add(ring.Id); }
             ring.Name ??= "";
+            ring.Icon ??= "";
             ring.Shortcut ??= "";
             ring.Radius = Math.Clamp(ring.Radius, 60, 400);
             if (ring.Style is { } style && !Enum.IsDefined(style)) ring.Style = null;
@@ -145,9 +166,13 @@ public sealed class ConfigStore
                 if (slice.Id == Guid.Empty) slice.Id = Guid.NewGuid();
                 slice.Label ??= "";
                 slice.Icon ??= "";
+                slice.ConfirmMs = Math.Clamp(slice.ConfirmMs, 0, RingSession.MaxConfirmMs);
                 if (slice.Action is AiChatAction ai) { ai.Instruction ??= ""; ai.SystemPrompt ??= ""; }
                 if (slice.Action is MacroAction macro)
                     macro.Steps = (macro.Steps ?? new()).Where(s => s is not null).ToList();
+                if (slice.Action is WebhookAction hook) hook.Request = Normalise(hook.Request);
+                if (slice.Action is MacroAction m)
+                    foreach (var step in m.Steps.OfType<WebhookStep>()) step.Request = Normalise(step.Request);
             }
         }
         return config;

@@ -3,7 +3,7 @@ using System.Windows.Media;
 
 namespace RingDeck.App;
 
-/// <summary>A slice icon on its own coloured circle, as it will look in the ring (used by the editor).</summary>
+/// <summary>A slice or ring icon on its own coloured circle, as it will look in the ring (used by the editor).</summary>
 public sealed class IconPreview : FrameworkElement
 {
     public static readonly DependencyProperty IconProperty = DependencyProperty.Register(nameof(Icon), typeof(string), typeof(IconPreview),
@@ -11,9 +11,12 @@ public sealed class IconPreview : FrameworkElement
     public static readonly DependencyProperty FillProperty = DependencyProperty.Register(nameof(Fill), typeof(string), typeof(IconPreview),
         new FrameworkPropertyMetadata("#2D2D3A", FrameworkPropertyMetadataOptions.AffectsRender));
 
+    public static readonly DependencyProperty LabelProperty = DependencyProperty.Register(nameof(Label), typeof(string), typeof(IconPreview),
+        new FrameworkPropertyMetadata("", FrameworkPropertyMetadataOptions.AffectsRender));
+
     public string Icon { get => (string)GetValue(IconProperty); set => SetValue(IconProperty, value); }
     public string Fill { get => (string)GetValue(FillProperty); set => SetValue(FillProperty, value); }
-    public string Label { get; set; } = "";
+    public string Label { get => (string)GetValue(LabelProperty); set => SetValue(LabelProperty, value); }
 
     protected override void OnRender(DrawingContext dc)
     {

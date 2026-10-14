@@ -38,6 +38,8 @@
           <DataTemplate DataType="{x:Type core:Ring}">
             <DockPanel Margin="2,4">
               <CheckBox DockPanel.Dock="Left" IsChecked="{Binding Enabled}" Click="OnEdited" ToolTip="Shortcut active" MinWidth="0" Margin="0,0,6,0" />
+              <local:IconPreview DockPanel.Dock="Left" Width="30" Height="30" Margin="0,0,8,0" VerticalAlignment="Center"
+                                 Icon="{Binding Icon}" Fill="{Binding Color}" Label="{Binding Name}" />
               <StackPanel>
                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                 <TextBlock Text="{Binding Converter={StaticResource RingSubtitle}}" FontSize="11" Foreground="{DynamicResource SubtleBrush}" TextTrimming="CharacterEllipsis" />
@@ -73,6 +75,8 @@
           <TextBlock Style="{StaticResource Heading}" Text="Ring" />
           <TextBlock Style="{StaticResource Caption}" Text="Name" />
           <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+          <TextBlock Style="{StaticResource Caption}" Text="Icon (shown in the middle of the ring, and on slices that open it)" TextWrapping="Wrap" />
+          <ContentControl x:Name="ringIconHost" />
           <TextBlock Style="{StaticResource Caption}" Text="Shortcut" />
           <local:ShortcutBox Value="{Binding Shortcut}" />
           <TextBlock x:Name="shortcutWarning" Foreground="#F2994A" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed" />
@@ -136,6 +140,8 @@
           <CheckBox Content="Animate rings" IsChecked="{Binding Animations}" Margin="0,14,0,0" />
           <CheckBox Content="Spiral outward on close" IsChecked="{Binding SpiralClose}" />
           <CheckBox Content="Pointer snaps instantly" IsChecked="{Binding InstantPointer}" />
+          <CheckBox Content="Open nested rings when pointing at them" IsChecked="{Binding OpenNestedOnHover}"
+                    ToolTip="Off: push the pointer past the slice, or click it, to open the ring it points to" />
           <CheckBox x:Name="autostartBox" Content="Start RingDeck with Windows" Click="OnAutostart" Margin="0,14,0,0" />
           <CheckBox Content="Play a click when a ring opens and a slice is chosen" IsChecked="{Binding Sounds}" Margin="0,8,0,0" />
           <DockPanel Margin="28,2,0,0" IsEnabled="{Binding Sounds}">

@@ -13,14 +13,28 @@ public sealed class ActionRunner
     readonly Func<DateTime> _now;
     readonly Func<int, CancellationToken, Task> _delay;
     readonly IWindowFocuser? _focuser;
+    readonly WebhookClient? _webhooks;
+    readonly Func<string, string> _reveal;
+    readonly Func<CancellationToken, Task<string?>>? _selection;
+    readonly Func<ClipImage, int, ClipImage?>? _shrink;
 
+    /// <param name="webhooks">Sends webhook slices and steps; without it they report that they can't run.</param>
+    /// <param name="reveal">Decrypts the stored webhook addresses and tokens.</param>
+    /// <param name="selection">Reads the text selected in the focused app, for {selection}.</param>
+    /// <param name="shrink">Makes a picture fit in a number of bytes (smaller JPEG), or returns null; for Teams.</param>
     public ActionRunner(IInputSender input, IClipboard clipboard, ILauncher launcher, INotifier notifier,
-        Func<DateTime>? now = null, Func<int, CancellationToken, Task>? delay = null, IWindowFocuser? focuser = null)
+        Func<DateTime>? now = null, Func<int, CancellationToken, Task>? delay = null, IWindowFocuser? focuser = null,
+        WebhookClient? webhooks = null, Func<string, string>? reveal = null, Func<CancellationToken, Task<string?>>? selection = null,
+        Func<ClipImage, int, ClipImage?>? shrink = null)
     {
         (_input, _clipboard, _launcher, _notifier) = (input, clipboard, launcher, notifier);
         _now = now ?? (() => DateTime.Now);
         _delay = delay ?? ((ms, ct) => Task.Delay(ms, ct));
         _focuser = focuser;
+        _webhooks = webhooks;
+        _reveal = reveal ?? (s => s);
+        _selection = selection;
+        _shrink = shrink;
     }
 
     public async Task RunAsync(Slice slice, CancellationToken ct)
@@ -32,6 +46,10 @@ public sealed class ActionRunner
                 case PasteTextAction paste: await Paste(paste, ct); break;
                 case MacroAction macro: await Macro(macro, ct); break;
                 case LaunchAction launch: _launcher.Launch(launch.Target, launch.Arguments, launch.WorkingFolder); break;
+                case WebhookAction hook:
+                    await SendWebhook(hook.Request, ct);
+                    _notifier.Notify($"\"{slice.Label}\" sent", "To " + Webhooks.Name(hook.Request.Service) + ".");
+                    break;
             }
         }
         catch (OperationCanceledException) { }
@@ -147,9 +165,40 @@ public sealed class ActionRunner
                     await _delay(ClipboardRetryMs, ct);
                 }
                 return false;
+            case WebhookStep hook:
+                await SendWebhook(hook.Request, ct);
+                return false;
             default:
                 return true;
         }
+    }
+
+    /// <summary>Sends one webhook. The clipboard image is read first, because reading the selection goes through the
+    /// clipboard too. Throws <see cref="WebhookException"/> with a message fit to show.</summary>
+    public async Task SendWebhook(WebRequest request, CancellationToken ct)
+    {
+        if (_webhooks is null) throw new WebhookException("Web requests are not available here.");
+        var image = request.SendImage && Webhooks.SupportsImages(request.Service) ? _clipboard.GetImage() : null;
+        string? selection = null;
+        var usesSelection = Placeholders.Uses(request.Message, "selection") || (request.Service == WebService.Custom
+            && (Placeholders.Uses(request.Body, "selection") || Placeholders.Uses(_reveal(request.Url), "selection")));
+        if (usesSelection && _selection is not null && _input.CanSendToForeground()) selection = await _selection(ct);
+        var now = _now();
+        var extra = new Dictionary<string, Func<string?>> { ["selection"] = () => selection };
+        var message = Placeholders.Expand(request.Message, now, _clipboard.GetText, extra);
+        extra["message"] = () => message;
+        if (image is not null && request.Service == WebService.Teams) image = FitForTeams(image, message, request.Title.Trim(), _shrink);
+        using var http = Webhooks.Build(request, message, image, _reveal, (text, escape) => Placeholders.Expand(text, now, _clipboard.GetText, extra, escape));
+        await _webhooks.SendAsync(http, Webhooks.Secrets(request, _reveal), ct);
+    }
+
+    /// <summary>Teams takes a picture only inside a small message: shrink it to what's left after the text.</summary>
+    public static ClipImage FitForTeams(ClipImage image, string message, string title, Func<ClipImage, int, ClipImage?>? shrink)
+    {
+        var budget = Webhooks.TeamsImageBudget(message, title);
+        if (image.Data.Length <= budget) return image;
+        return shrink?.Invoke(image, budget)
+            ?? throw new WebhookException("The picture is too big for a Teams message (about 28 KB in all) and could not be made smaller.");
     }
 
     static string Describe(FocusStep f) =>
@@ -158,6 +207,7 @@ public sealed class ActionRunner
     static string StepName(MacroStep step) => step switch
     {
         KeyStep => "keys", TextStep => "type text", DelayStep => "wait", PasteStep => "paste",
-        LaunchStep => "open", FocusStep => "focus window", ClipboardStep => "set clipboard", _ => "step",
+        LaunchStep => "open", FocusStep => "focus window", ClipboardStep => "set clipboard",
+        WebhookStep w => "send to " + Webhooks.Name(w.Request.Service), _ => "step",
     };
 }

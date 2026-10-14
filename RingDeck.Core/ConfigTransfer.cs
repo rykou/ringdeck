@@ -32,6 +32,12 @@ public static class ConfigTransfer
             c.ApiKey = "";
             foreach (var h in c.Headers.Where(h => h.Secret)) h.Value = "";
         }
+        // Webhook addresses and tokens let anyone post as you: they never travel with an export.
+        foreach (var r in ConfigStore.WebRequests(config))
+        {
+            r.Url = r.Token = r.Target = "";
+            foreach (var h in r.Headers.Where(h => h.Secret)) h.Value = "";
+        }
     }
 
     /// <summary>Adds every incoming ring under fresh ids. Shortcuts already in use are cleared; image icons are dropped
@@ -49,6 +55,7 @@ public static class ConfigTransfer
         {
             ring.Id = ids[ring.Id];
             if (ring.Shortcut != "" && !taken.Add(ring.Shortcut)) ring.Shortcut = "";
+            if (ring.Icon.StartsWith("file:", StringComparison.Ordinal)) ring.Icon = "";
             foreach (var slice in ring.Slices)
             {
                 slice.Id = Guid.NewGuid();

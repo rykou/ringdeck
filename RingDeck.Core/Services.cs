@@ -19,7 +19,11 @@ public interface IClipboard
     bool TrySetText(string text);
     object? Capture();
     void Restore(object? snapshot);
+    /// <summary>The picture on the clipboard (a copied image, or a copied image file), or null.</summary>
+    ClipImage? GetImage() => null;
 }
+
+public sealed record ClipImage(byte[] Data, string FileName, string ContentType);
 
 public interface ILauncher
 {

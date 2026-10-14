@@ -115,7 +115,7 @@ public partial class EditorWindow : Window
     /// <summary>Developer aid for `--shot-editor`: saves the window's content as a PNG, optionally with a slice selected.</summary>
     internal void SaveShot(string path, bool selectSlice)
     {
-        if (selectSlice && (_ring?.Slices.FirstOrDefault(s => s.Action is AiChatAction) ?? _ring?.Slices.FirstOrDefault(s => s.Action is MacroAction)) is { } slice) ShowSlice(slice);
+        if (selectSlice && (_ring?.Slices.FirstOrDefault(s => s.Action is WebhookAction) ?? _ring?.Slices.FirstOrDefault(s => s.Action is AiChatAction) ?? _ring?.Slices.FirstOrDefault(s => s.Action is MacroAction)) is { } slice) ShowSlice(slice);
         UpdateLayout();
         var root = (FrameworkElement)Content;
         var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth + 32, (int)root.ActualHeight + 32, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
@@ -212,6 +212,7 @@ public partial class EditorWindow : Window
         ringPanel.DataContext = null;
         ringPanel.DataContext = _ring;
         onlyInBox.Text = _ring is null ? "" : string.Join(Environment.NewLine, _ring.OnlyIn);
+        ringIconHost.Content = _ring is not { } ring ? null : IconRow(() => ring.Icon, v => ring.Icon = v, ring.Color, ring.Name, () => ShowSlice(null));
         ringPanel.Visibility = _ring is not null && slice is null ? Visibility.Visible : Visibility.Collapsed;
         slicePanel.Visibility = slice is not null ? Visibility.Visible : Visibility.Collapsed;
         settingsPanel.Visibility = Visibility.Collapsed;

@@ -23,6 +23,44 @@ public sealed partial class RingVisual : FrameworkElement
     public double Radius { get; set; } = 120;
     public Vector Offset { get; set; }
     public Func<Guid, Ring?>? FindRing { get; set; }
+    /// <summary>Where the slices sit; a nested ring fans away from its parent. Null: the whole circle.</summary>
+    public RingLayout? Layout { get; set; }
+    /// <summary>Where this ring's centre is, in ring units (the controller uses it to place the window and the offsets).</summary>
+    public Point Center { get; set; }
+    /// <summary>From this ring's centre to the slice of the parent ring that opened it: a line is drawn between them.</summary>
+    public Vector? Link { get; set; }
+    /// <summary>From this ring's centre to where it grows out of (the parent's slice): while it opens it travels from
+    /// there to its place, and while it closes it shrinks back.</summary>
+    public Vector? GrowFrom { get; set; }
+
+    /// <summary>Where the centre ends up, and where it is at this point of the opening or closing.</summary>
+    Point FinalCenter => new(ActualWidth / 2 + Offset.X, ActualHeight / 2 + Offset.Y);
+    Point LiveCenter => GrowFrom is { } from ? FinalCenter + from * (1 - Math.Clamp(Animator.Pose.Alpha, 0, 1)) : FinalCenter;
+
+    /// <summary>Below 1 for rings the user came through: they stay visible, faded, under the current ring.</summary>
+    public double Dim { get; set; } = 1;
+    /// <summary>The fade <see cref="Dim"/> moves toward, a little each frame.</summary>
+    public double DimTarget { get; set; } = 1;
+
+    RingLayout L => Layout is { } layout && Ring is { } ring && layout.Count == ring.Slices.Count ? layout : RingLayout.Full(Ring?.Slices.Count ?? 0);
+
+    /// <summary>The line from the parent ring's slice to this ring's centre, under everything else.</summary>
+    void DrawLink(DrawingContext dc, Color accent, double alpha)
+    {
+        if (Link is not { } link) return;
+        var start = FinalCenter + link;
+        var toward = start - LiveCenter;
+        if (toward.Length < Hub) return;
+        var end = LiveCenter + toward * (Hub / toward.Length);
+        dc.PushOpacity(alpha);
+        dc.DrawLine(new Pen(Theme.Frozen(accent, 0.22), 12) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, start, end);
+        dc.DrawLine(new Pen(Theme.Frozen(accent, 0.9), 3) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, start, end);
+        dc.DrawEllipse(Theme.Frozen(accent), null, start, 4, 4);
+        dc.Pop();
+    }
+
+    /// <summary>How far the selected slice's hover wait has got, 0 to 1 (see <see cref="RingSession.HoldProgress"/>).</summary>
+    public double HoldProgress { get; set; } = 1;
     /// <summary>Draw in this style instead of the ring's own (developer pictures).</summary>
     public RingStyle? StyleOverride { get; set; }
 
@@ -34,9 +72,16 @@ public sealed partial class RingVisual : FrameworkElement
         var ring = Ring;
         if (ring is null || Animator.Phase == AnimPhase.Hidden) return;
         var style = StyleOverride ?? ring.StyleIn(App.Instance.Config?.Settings ?? new GlobalSettings());
-        if (style != RingStyle.Classic) { DrawStyled(dc, ring, style); return; }
+        dc.PushOpacity(Math.Clamp(Dim, 0, 1));
+        DrawLink(dc, Theme.Parse(ring.Accent, Theme.Accent), Math.Clamp(Animator.Pose.Alpha, 0, 1));
+        if (style != RingStyle.Classic) DrawStyled(dc, ring, style); else DrawClassic(dc, ring);
+        dc.Pop();
+    }
+
+    void DrawClassic(DrawingContext dc, Ring ring)
+    {
         var pose = Animator.Pose;
-        var center = new Point(ActualWidth / 2 + Offset.X, ActualHeight / 2 + Offset.Y);
+        var center = LiveCenter;
         var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         var accentColor = Theme.Parse(ring.Accent, Theme.Accent);
         var accent = Theme.Frozen(accentColor);
@@ -52,11 +97,13 @@ public sealed partial class RingVisual : FrameworkElement
             var pen = new Pen(accent, 4.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
             dc.DrawGeometry(null, pen, Arc(center, Hub, Animator.PointerAngle - 26, Animator.PointerAngle + 26));
         }
+        if (Selected < 0 && ring.Icon.Length > 0)
+            DrawIcon(dc, ring.Icon, ring.Name, center, Hub * 0.72, Contrast(Theme.Parse(ring.Color, Color.FromRgb(0x1E, 0x1E, 0x24))), dpi);
 
         for (var i = 0; i < count; i++)
         {
             var slice = ring.Slices[i];
-            var angle = RingGeometry.SliceAngle(i, count) + pose.Rotation;
+            var angle = L.Angle(i) + pose.Rotation;
             var at = Along(center, angle, Radius * pose.RadiusFactor);
             var scale = i < Animator.SliceScales.Count ? Animator.SliceScales[i] : 1;
             var r = RingSession.SliceSize / 2 * scale;
@@ -65,25 +112,27 @@ public sealed partial class RingVisual : FrameworkElement
             if (i == Faded) dc.PushOpacity(0.25);
             if (selected) dc.DrawEllipse(Theme.Frozen(accentColor, 0.28), null, at, r + 7, r + 7);
             dc.DrawEllipse(Theme.Frozen(fillColor), new Pen(selected ? accent : edge, selected ? 2.5 : 1), at, r, r);
-            DrawIcon(dc, slice, at, r, Contrast(fillColor), dpi);
+            DrawIcon(dc, IconOf(slice), slice.Label, at, r, Contrast(fillColor), dpi);
+            HoldRing(dc, slice, i, at, r, accentColor);
             if (slice.Action is NestedRingAction)
                 dc.DrawEllipse(accent, null, Along(center, angle, Radius * pose.RadiusFactor + r + 7), 3, 3);
             // The label stays under the slice while it is selected too (it is also shown in the centre);
             // it only moves down a little to clear the highlight ring.
             if (ring.ShowLabels && slice.Label.Length > 0)
-                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + (selected ? 9 : 3)), 11, Theme.Frozen(Colors.White), 120, dpi, false, true);
+                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + (selected ? 9 : 3) + (slice.ConfirmMs > 0 ? 8 : 0)), 11, Theme.Frozen(Colors.White), 120, dpi, false, true);
             if (i == Faded) dc.Pop();
         }
 
         if (Selected >= 0 && Selected < count)
         {
             var slice = ring.Slices[Selected];
-            if (slice.Action is NestedRingAction nested && FindRing?.Invoke(nested.RingId) is { } child)
+            // A faded ring in the trail already shows where it led; no preview of the child there.
+            if (Dim >= 1 && slice.Action is NestedRingAction nested && FindRing?.Invoke(nested.RingId) is { } child)
             {
                 var shown = Math.Min(child.Slices.Count, 7);
                 for (var j = 0; j < shown; j++)
                 {
-                    var a = RingGeometry.SliceAngle(Selected, count) + pose.Rotation + (j - (shown - 1) / 2.0) * 13;
+                    var a = L.Angle(Selected) + pose.Rotation + (j - (shown - 1) / 2.0) * 13;
                     var dot = Along(center, a, Radius * pose.RadiusFactor + RingSession.SliceSize * 0.98);
                     dc.DrawEllipse(Theme.Frozen(Theme.Parse(child.Slices[j].Color, Colors.Gray)), new Pen(edge, 1), dot, 7, 7);
                 }
@@ -94,6 +143,32 @@ public sealed partial class RingVisual : FrameworkElement
         dc.Pop();
         dc.Pop();
     }
+
+    /// <summary>For a slice that needs the pointer to rest on it: a faint circle around it, and while it is selected an
+    /// arc that fills clockwise from the top; once full the slice can run.</summary>
+    void HoldRing(DrawingContext dc, Slice slice, int index, Point at, double r, Color accent)
+    {
+        if (slice.ConfirmMs <= 0) return;
+        var radius = r + 9;
+        dc.DrawEllipse(null, new Pen(Theme.Frozen(accent, 0.3), 2), at, radius, radius);
+        if (index != Selected) return;
+        var progress = Math.Clamp(HoldProgress, 0, 1);
+        var pen = new Pen(Theme.Frozen(accent), 3.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+        if (progress >= 1) { dc.DrawEllipse(null, pen, at, radius, radius); return; }
+        if (progress <= 0) return;
+        var geometry = new StreamGeometry();
+        using (var g = geometry.Open())
+        {
+            g.BeginFigure(Along(at, 0, radius), false, false);
+            g.ArcTo(Along(at, 360 * progress, radius), new Size(radius, radius), 0, progress > 0.5, SweepDirection.Clockwise, true, false);
+        }
+        geometry.Freeze();
+        dc.DrawGeometry(null, pen, geometry);
+    }
+
+    /// <summary>A slice's icon; a slice that opens another ring and has none borrows that ring's icon.</summary>
+    string IconOf(Slice slice) =>
+        slice.Icon.Length == 0 && slice.Action is NestedRingAction nested && FindRing?.Invoke(nested.RingId) is { Icon.Length: > 0 } child ? child.Icon : slice.Icon;
 
     static Point Along(Point center, double angle, double radius)
     {
