@@ -78,6 +78,25 @@ public class ActionRunnerTests
     }
 
     [Fact]
+    public async Task RawPasteKeepsBracesAndPlaceholdersAsTheyAre()
+    {
+        var (r, f) = Make();
+        await r.PasteTextAsync("x = {date} {{clipboard}}", default);
+        Assert.Equal(new[] { "set x = {date} {{clipboard}}", "release", "combo Ctrl+V", "restore", "restore-mods" }, f.Log);
+        Assert.Equal("old", f.Clip);
+    }
+
+    [Fact]
+    public async Task RawPasteReportsFailureInsteadOfThrowing()
+    {
+        var (r, f) = Make();
+        f.Elevated = true;
+        await r.PasteTextAsync("x", default);
+        Assert.Empty(f.Log);
+        Assert.Contains("administrator", Assert.Single(f.Notes));
+    }
+
+    [Fact]
     public async Task EmptyPasteDoesNothing()
     {
         var (r, f) = Make();

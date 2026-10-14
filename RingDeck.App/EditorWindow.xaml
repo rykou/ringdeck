@@ -103,6 +103,16 @@
           <CheckBox Content="Pointer snaps instantly" IsChecked="{Binding InstantPointer}" />
           <CheckBox x:Name="autostartBox" Content="Start RingDeck with Windows" Click="OnAutostart" Margin="0,14,0,0" />
 
+          <TextBlock Style="{StaticResource Heading}" Text="AI connections" Margin="0,26,0,4" />
+          <TextBlock Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,0,0,6"
+                     Text="Services that AI chat slices talk to. Keys are encrypted for your Windows account and never exported." />
+          <ListBox x:Name="connectionList" DisplayMemberPath="Name" MaxHeight="160" MouseDoubleClick="OnEditConnection" />
+          <UniformGrid Columns="3" Margin="0,6,0,0">
+            <Button Content="New" Click="OnNewConnection" Margin="0,0,4,0" />
+            <Button Content="Edit" Click="OnEditConnection" Margin="0,0,4,0" />
+            <Button Content="Delete" Click="OnDeleteConnection" />
+          </UniformGrid>
+
           <TextBlock Style="{StaticResource Heading}" Text="Games" Margin="0,26,0,4" />
           <CheckBox Content="Turn rings off in fullscreen apps and games" IsChecked="{Binding DisableInFullscreen}" />
           <TextBlock Style="{StaticResource Caption}" Text="Also off in these programs (one per line, for example Wow.exe)" TextWrapping="Wrap" />

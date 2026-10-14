@@ -1,0 +1,67 @@
+<Window x:Class="RingDeck.App.ConnectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AI connection" Width="560" Height="760" MinWidth="460" MinHeight="520"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <DockPanel Margin="18">
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button Content="Cancel" IsCancel="True" Margin="0,0,8,0" />
+        <Button Content="Save" IsDefault="True" Click="OnSave" />
+      </StackPanel>
+      <Button Content="Test" Click="OnTest" ToolTip="Sends &quot;Reply with the single word OK.&quot;" />
+      <TextBlock x:Name="testResult" Margin="10,0,10,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+    </DockPanel>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="0,0,10,0">
+        <TextBlock Style="{StaticResource Caption}" Text="Name" Margin="0,0,0,4" />
+        <TextBox x:Name="nameBox" />
+        <TextBlock Style="{StaticResource Caption}" Text="API format" />
+        <ComboBox x:Name="formatBox" SelectionChanged="OnFormatChanged">
+          <ComboBoxItem Content="OpenAI-compatible (OpenAI, Ollama, LM Studio, OpenRouter, Groq…)" />
+          <ComboBoxItem Content="Anthropic (Claude)" />
+          <ComboBoxItem Content="Google Gemini" />
+          <ComboBoxItem Content="Custom (write the request yourself)" />
+        </ComboBox>
+        <TextBlock Style="{StaticResource Caption}" Text="Endpoint URL (a base address ending in /v1 is fine)" />
+        <TextBox x:Name="endpointBox" TextChanged="OnEndpointChanged" />
+        <TextBlock x:Name="insecureText" Foreground="#F2994A" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed"
+                   Text="This address uses plain http:// to another computer, so your key and messages travel unencrypted." />
+        <TextBlock Style="{StaticResource Caption}" Text="Model" />
+        <DockPanel>
+          <Button x:Name="loadModelsButton" DockPanel.Dock="Right" Content="Load models" Margin="8,0,0,0" Click="OnLoadModels" />
+          <ComboBox x:Name="modelBox" IsEditable="True" IsTextSearchEnabled="False"
+                    ToolTip="Pick from the list the service returned, or type any model name" />
+        </DockPanel>
+        <TextBlock x:Name="modelsNote" Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed" />
+        <TextBlock Style="{StaticResource Caption}" Text="API key" />
+        <DockPanel>
+          <Button x:Name="forgetKeyButton" DockPanel.Dock="Right" Content="Remove saved key" Margin="8,0,0,0" Click="OnForgetKey" />
+          <PasswordBox x:Name="keyBox" LostKeyboardFocus="OnKeyEntered" />
+        </DockPanel>
+        <TextBlock x:Name="keyNote" Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+        <TextBlock Style="{StaticResource Caption}" Text="Extra headers (name, value, secret). Values may use {{api_key}}." />
+        <StackPanel x:Name="headerRows" />
+        <Button Content="Add header" HorizontalAlignment="Left" Margin="0,6,0,0" Click="OnAddHeader" />
+        <Grid Margin="0,4,0,0">
+          <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="12" /><ColumnDefinition /></Grid.ColumnDefinitions>
+          <StackPanel>
+            <TextBlock Style="{StaticResource Caption}" Text="Temperature (optional)" />
+            <TextBox x:Name="temperatureBox" />
+          </StackPanel>
+          <StackPanel Grid.Column="2">
+            <TextBlock Style="{StaticResource Caption}" Text="Max tokens (optional)" />
+            <TextBox x:Name="maxTokensBox" />
+          </StackPanel>
+        </Grid>
+        <StackPanel x:Name="customPanel" Visibility="Collapsed">
+          <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap"
+                     Text="Request body. Placeholders: {{model}} {{prompt}} {{system}} {{api_key}} go inside quotes; {{messages}} is a JSON array of {role, content}." />
+          <TextBox x:Name="templateBox" AcceptsReturn="True" AcceptsTab="True" MinHeight="110" FontFamily="Consolas" TextWrapping="Wrap" />
+          <TextBlock Style="{StaticResource Caption}" Text="Where the answer is in the response, e.g. choices[0].message.content" />
+          <TextBox x:Name="pathBox" FontFamily="Consolas" />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

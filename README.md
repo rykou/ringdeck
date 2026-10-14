@@ -23,6 +23,22 @@ Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut
 Placeholders in pasted and typed text: `{date}`, `{time}`, `{datetime}`, `{clipboard}`, with optional formats such as
 `{date:yyyy-MM-dd}`. Type `{{` for a literal brace.
 
+## AI chat slices
+
+A slice can open a chat with any AI model you set up: OpenAI-compatible services (OpenAI, Ollama, LM Studio,
+OpenRouter, Groq and others), Anthropic, Google Gemini, or any HTTP API through a custom request template.
+
+1. In the editor, open **Settings → AI connections → New**: pick the format, then fill in the address, model and key.
+   Once a key is in, the Model list fills with the models it can use (OpenAI-compatible, Anthropic and Gemini).
+   Add extra headers if your service needs them. **Test** checks it works.
+2. Set a slice's **When chosen** to **AI chat**, pick the connection, and optionally give it an instruction such as
+   "Translate to English".
+3. Select some text anywhere, open the ring and pick the slice. The chat opens with your text, the reply streams in,
+   and **Ctrl+Enter** pastes it back over your selection.
+
+Make as many slices as you like, each on its own connection and instruction. Keys are encrypted for your Windows
+account and are never included when you export rings.
+
 ## Limits
 
 - Windows blocks input to programs running as administrator; RingDeck shows a notification instead.

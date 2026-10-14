@@ -43,12 +43,23 @@ public sealed class ActionRunner
                 "The active window is running as administrator, so Windows blocks RingDeck from sending input to it.");
     }
 
-    async Task Paste(PasteTextAction paste, CancellationToken ct)
+    /// <summary>Pastes text exactly as given (no placeholder expansion), restoring the clipboard afterwards.
+    /// Used for AI replies. Never throws: failures are reported to the notifier.</summary>
+    public async Task PasteTextAsync(string text, CancellationToken ct)
     {
-        var text = Placeholders.Expand(paste.Text ?? "", _now(), _clipboard.GetText);
+        try { await PasteRaw(text, restoreClipboard: true, ct); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _notifier.Notify("The reply could not be pasted", ex.Message); }
+    }
+
+    Task Paste(PasteTextAction paste, CancellationToken ct) =>
+        PasteRaw(Placeholders.Expand(paste.Text ?? "", _now(), _clipboard.GetText), paste.RestoreClipboard, ct);
+
+    async Task PasteRaw(string text, bool restoreClipboard, CancellationToken ct)
+    {
         if (text.Length == 0) return;
         RequireSendable();
-        var saved = paste.RestoreClipboard ? _clipboard.Capture() : null;
+        var saved = restoreClipboard ? _clipboard.Capture() : null;
         var waited = 0;
         while (!_clipboard.TrySetText(text))
         {
@@ -60,11 +71,11 @@ public sealed class ActionRunner
         {
             _input.ReleaseModifiers();
             _input.SendCombo(PasteCombo);
-            if (paste.RestoreClipboard) await _delay(RestoreAfterMs, ct);
+            if (restoreClipboard) await _delay(RestoreAfterMs, ct);
         }
         finally
         {
-            if (paste.RestoreClipboard) _clipboard.Restore(saved);
+            if (restoreClipboard) _clipboard.Restore(saved);
             _input.RestoreModifiers();
         }
     }

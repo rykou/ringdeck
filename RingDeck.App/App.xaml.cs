@@ -7,7 +7,11 @@ namespace RingDeck.App;
 
 public partial class App : Application
 {
-    const string InstanceName = @"Local\RingDeck.Instance", OpenEditorName = @"Local\RingDeck.OpenEditor";
+    // RINGDECK_DATA points a developer copy at its own settings folder and gives it its own single-instance lock,
+    // so it can run next to the installed RingDeck without touching the user's rings.
+    static readonly string? DevData = Environment.GetEnvironmentVariable("RINGDECK_DATA") is { Length: > 0 } d ? d : null;
+    static readonly string InstanceName = @"Local\RingDeck.Instance" + (DevData is null ? "" : ".dev");
+    static readonly string OpenEditorName = @"Local\RingDeck.OpenEditor" + (DevData is null ? "" : ".dev");
 
     Mutex? _instance;
     EventWaitHandle? _openEditor;
@@ -17,9 +21,10 @@ public partial class App : Application
     public ConfigStore Store { get; private set; } = null!;
     public AppConfig Config { get; set; } = null!;
     public IconStore Icons { get; private set; } = null!;
+    public ISecretProtector Secrets { get; } = new DpapiProtector();
     public TrayIcon Tray { get; private set; } = null!;
 
-    static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RingDeck");
+    static string DataDir => DevData ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RingDeck");
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -39,6 +44,18 @@ public partial class App : Application
             var settings = new ConfigStore(DataDir).Load().Config.Settings;
             File.WriteAllText(e.Args[probe + 1], $"exe={app.Exe ?? "(none)"} fullscreen={app.Fullscreen} ringsOff={Suppression.Applies(settings, app)}\n");
             Shutdown();
+            return;
+        }
+        var demo = Array.IndexOf(e.Args, "--ai-demo");
+        if (demo >= 0 && demo + 2 < e.Args.Length)
+        {
+            // Developer aid: chat with an OpenAI-compatible endpoint (e.g. a local test server), save a picture, exit.
+            Store = new ConfigStore(DataDir);
+            Config = Store.Load().Config;
+            Theme.Apply(Config.Settings);
+            var connection = new AiConnection { Name = "Local test", Model = "demo-model", Endpoint = e.Args[demo + 1], ApiKey = Secrets.Protect("sk-demo") };
+            var panel = AiPanel.Open(connection, new AiChatAction { Instruction = "Translate to English:" }, "Bom dia! Como vai o projeto?", IntPtr.Zero, (_, _) => { });
+            _ = panel.SaveWhenDoneAsync(e.Args[demo + 2], TimeSpan.FromSeconds(20)).ContinueWith(_ => Dispatcher.Invoke(Shutdown));
             return;
         }
         var render = Array.IndexOf(e.Args, "--render");
@@ -102,13 +119,14 @@ public partial class App : Application
             ShowEditor();
             var prefix = e.Args[shot + 1];
             var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            timer.Tick += (_, _) =>
+            timer.Tick += async (_, _) =>
             {
                 timer.Stop();
                 try
                 {
                     _editor!.SaveShot(prefix + "-ring.png", false);
                     _editor.SaveShot(prefix + "-slice.png", true);
+                    if (Config.AiConnections.FirstOrDefault() is { } c) await _editor.SaveConnectionShot(c, prefix + "-connection.png");
                 }
                 catch (Exception ex) { Log(ex); }
                 _editor!.ProbeDropDown(prefix + "-probe.txt", ExitApp);

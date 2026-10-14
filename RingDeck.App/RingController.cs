@@ -16,6 +16,8 @@ public sealed class RingController : IDisposable
     readonly HotkeyMatcher _matcher = new();
     readonly RingSession _session;
     readonly ActionRunner _runner;
+    readonly ClipboardService _clipboard = new();
+    readonly AiClient _ai = new();
     readonly OverlayWindow _overlay = new();
     readonly HashSet<int> _swallowUp = new();
     readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
@@ -34,7 +36,7 @@ public sealed class RingController : IDisposable
         _notifier = notifier;
         _session = new RingSession(id => _config().Find(id));
         _input = new InputSender(_hook.IsPhysicallyDown);
-        _runner = new ActionRunner(_input, new ClipboardService(), new Launcher(), notifier);
+        _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier);
         _actions = StartActionThread();
         _hook.Error = App.Log;
         _overlay.Current.FindRing = _overlay.Outgoing.FindRing = id => _config().Find(id);
@@ -229,9 +231,81 @@ public sealed class RingController : IDisposable
         _overlay.Current.Animator.Close();
         if (result.Kind == ChooseKind.MissingRing)
             _notifier.Notify($"\"{result.Slice?.Label}\" has nothing to open", "The ring it points to was deleted or has no slices.");
+        if (result.Kind == ChooseKind.Run && result.Slice is { Action: AiChatAction ai } aiSlice)
+        {
+            OpenAi(aiSlice, ai);
+            return;
+        }
         if (result.Kind == ChooseKind.Run && result.Slice is { } slice)
             RunSlice(slice);
     }
+
+    /// <summary>AI slice: note the window in front and grab its selection (actions thread), then open the panel.</summary>
+    void OpenAi(Slice slice, AiChatAction ai)
+    {
+        if (_config().FindConnection(ai.ConnectionId) is not { } connection)
+        {
+            _notifier.Notify($"\"{slice.Label}\" has no AI connection", "Pick or create one for this slice in the editor.");
+            return;
+        }
+        _actions.BeginInvoke(new Func<Task>(async () =>
+        {
+            string? input = null;
+            IntPtr target = IntPtr.Zero;
+            try
+            {
+                await Task.Delay(60);                     // let the swallowed shortcut key-up settle
+                target = Focus.Foreground();
+                input = ai.Input switch
+                {
+                    AiInput.Selection when _input.CanSendToForeground() => await SelectionGrabber.GrabAsync(_input, _clipboard, CancellationToken.None),
+                    AiInput.Clipboard => _clipboard.GetText(),
+                    _ => null,
+                };
+            }
+            catch (Exception ex) { App.Log(ex); }
+            if (ai.ShowChat) _ = _dispatcher.BeginInvoke(() => AiPanel.Open(connection, ai, input, target, InsertReply));
+            else await AnswerToClipboard(slice, connection, ai, input);
+        }));
+    }
+
+    /// <summary>No chat window: ask once, put the answer on the clipboard, say so. Runs on the actions thread.</summary>
+    async Task AnswerToClipboard(Slice slice, AiConnection connection, AiChatAction ai, string? input)
+    {
+        string reply;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            reply = await AiChat.AskOnceAsync(_ai, connection, ai, input, App.Instance.Secrets.Reveal, cts.Token);
+        }
+        catch (Exception ex) when (ex is AiException or OperationCanceledException)
+        {
+            _notifier.Notify($"\"{slice.Label}\" failed", ex is AiException ? ex.Message : "No answer within 2 minutes.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            App.Log(ex);
+            _notifier.Notify($"\"{slice.Label}\" failed", ex.Message);
+            return;
+        }
+        for (var waited = 0; !_clipboard.TrySetText(reply); waited += 50)
+        {
+            if (waited >= 1000) { _notifier.Notify($"\"{slice.Label}\" answered", "But the clipboard is in use by another program, so it could not be copied."); return; }
+            await Task.Delay(50);
+        }
+        var preview = reply.ReplaceLineEndings(" ");
+        _notifier.Notify($"\"{slice.Label}\": copied to the clipboard", preview.Length > 120 ? preview[..120] + "…" : preview);
+    }
+
+    /// <summary>Pastes an AI reply into the window the slice was used in (the panel has already handed focus back).</summary>
+    void InsertReply(IntPtr target, string text) =>
+        _actions.BeginInvoke(new Func<Task>(async () =>
+        {
+            await Task.Delay(150);
+            if (Focus.Foreground() != target) Focus.Restore(target);
+            await _runner.PasteTextAsync(text, CancellationToken.None);
+        }));
 
     void RunSlice(Slice slice)
     {

@@ -11,12 +11,12 @@ namespace RingDeck.App;
 
 public partial class EditorWindow
 {
-    static readonly string[] ActionNames = { "Nothing", "Paste text", "Keystroke macro", "Open app, file or link", "Open another ring" };
+    static readonly string[] ActionNames = { "Nothing", "Paste text", "Keystroke macro", "Open app, file or link", "Open another ring", "AI chat" };
     MacroRecorder? _recorder;
 
     static int ActionIndex(SliceAction? action) => action switch
     {
-        PasteTextAction => 1, MacroAction => 2, LaunchAction => 3, NestedRingAction => 4, _ => 0,
+        PasteTextAction => 1, MacroAction => 2, LaunchAction => 3, NestedRingAction => 4, AiChatAction => 5, _ => 0,
     };
 
     static TextBlock Caption(string text) => new() { Text = text, Style = (Style)Application.Current.Resources["Caption"] };
@@ -57,7 +57,7 @@ public partial class EditorWindow
             if (_loading || kind.SelectedIndex == ActionIndex(slice.Action)) return;
             slice.Action = kind.SelectedIndex switch
             {
-                1 => new PasteTextAction(), 2 => new MacroAction(), 3 => new LaunchAction(), 4 => new NestedRingAction(), _ => null,
+                1 => new PasteTextAction(), 2 => new MacroAction(), 3 => new LaunchAction(), 4 => new NestedRingAction(), 5 => NewAiAction(), _ => null,
             };
             ShowSlice(slice);
             Touch();
@@ -70,6 +70,7 @@ public partial class EditorWindow
             case MacroAction macro: MacroEditor(macro); break;
             case LaunchAction launch: LaunchEditor(launch); break;
             case NestedRingAction nested: NestedEditor(nested); break;
+            case AiChatAction ai: AiEditor(ai); break;
         }
     }
 
@@ -239,5 +240,82 @@ public partial class EditorWindow
             _ => new TextBlock(),
         });
         return row;
+    }
+
+    // ----- AI chat -----
+
+    /// <summary>A new AI slice uses the first connection, if there is one.</summary>
+    AiChatAction NewAiAction() => new() { ConnectionId = Config.AiConnections.FirstOrDefault()?.Id ?? Guid.Empty };
+
+    /// <summary>Opens the connection dialog. Returns true when the user saved.</summary>
+    internal bool EditConnection(AiConnection connection) => new ConnectionWindow(connection) { Owner = this }.ShowDialog() == true;
+
+    void AiEditor(AiChatAction ai)
+    {
+        var add = slicePanel.Children;
+        add.Add(Caption("AI connection"));
+        var row = new DockPanel();
+        var newButton = new Button { Content = "New", Margin = new Thickness(6, 0, 0, 0) };
+        var editButton = new Button { Content = "Edit", Margin = new Thickness(6, 0, 0, 0) };
+        DockPanel.SetDock(newButton, Dock.Right);
+        DockPanel.SetDock(editButton, Dock.Right);
+        var picker = new ComboBox { ItemsSource = Config.AiConnections.ToList(), DisplayMemberPath = nameof(AiConnection.Name), SelectedItem = Config.FindConnection(ai.ConnectionId) };
+        picker.SelectionChanged += (_, _) => { if (!_loading && picker.SelectedItem is AiConnection c) ai.ConnectionId = c.Id; };
+        editButton.IsEnabled = picker.SelectedItem is not null;
+        editButton.Click += (_, _) => { if (picker.SelectedItem is AiConnection c && EditConnection(c)) { ShowSlice(_slice); Touch(); } };
+        newButton.Click += (_, _) =>
+        {
+            var c = new AiConnection { Name = "AI " + (Config.AiConnections.Count + 1) };
+            if (!EditConnection(c)) return;
+            Config.AiConnections.Add(c);
+            ai.ConnectionId = c.Id;
+            ShowSlice(_slice);
+            Touch();
+        };
+        row.Children.Add(editButton);
+        row.Children.Add(newButton);
+        row.Children.Add(picker);
+        add.Add(row);
+        if (picker.SelectedItem is null)
+            add.Add(new TextBlock
+            {
+                Text = Config.AiConnections.Count == 0 ? "Create a connection: the service's address, model and key." : "Pick the connection this slice talks to.",
+                Foreground = Brushes.Orange, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap,
+            });
+
+        add.Add(Caption("Instruction (optional, sent before your text)"));
+        add.Add(Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 60 }, TextBox.TextProperty, ai, nameof(AiChatAction.Instruction)));
+        add.Add(Caption("System prompt (optional, how the AI should behave)"));
+        // The grabbed text reaches the model inside <text> tags; saying so in the prompt keeps it from answering it.
+        add.Add(Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 44 }, TextBox.TextProperty, ai, nameof(AiChatAction.SystemPrompt)));
+        add.Add(Caption("Start from"));
+        var input = new ComboBox { ItemsSource = new[] { "The selected text", "The clipboard", "Nothing" }, SelectedIndex = (int)ai.Input };
+        input.SelectionChanged += (_, _) => { if (!_loading) ai.Input = (AiInput)input.SelectedIndex; };
+        add.Add(input);
+        var showChat = Bound(new CheckBox { Content = "Show the chat window", Margin = new Thickness(0, 12, 0, 0) },
+            ToggleButton.IsCheckedProperty, ai, nameof(AiChatAction.ShowChat));
+        var sendNow = Bound(new CheckBox { Content = "Send straight away (otherwise you can edit first)" },
+            ToggleButton.IsCheckedProperty, ai, nameof(AiChatAction.SendImmediately));
+        var quietNote = new TextBlock
+        {
+            Margin = new Thickness(28, 2, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["SubtleBrush"],
+            Text = "Off: the request runs in the background and the answer is copied to the clipboard. A notification tells you when it's ready.",
+        };
+        void SyncChat()
+        {
+            sendNow.IsEnabled = showChat.IsChecked == true;        // without a window there is nothing to edit first
+            quietNote.Visibility = showChat.IsChecked == true ? Visibility.Collapsed : Visibility.Visible;
+        }
+        showChat.Checked += (_, _) => SyncChat();
+        showChat.Unchecked += (_, _) => SyncChat();
+        SyncChat();
+        add.Add(showChat);
+        add.Add(quietNote);
+        add.Add(sendNow);
+        add.Add(new TextBlock
+        {
+            Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["SubtleBrush"],
+            Text = "Your selected text is sent between <text> and </text>. For rewrites, end the prompt with \"Reply with only the rewritten text.\" In the chat: Enter sends, Ctrl+Enter pastes the reply back, Esc closes.",
+        });
     }
 }

@@ -9,8 +9,10 @@ public sealed class AppConfig
     public int Version { get; set; } = 1;
     public GlobalSettings Settings { get; set; } = new();
     public List<Ring> Rings { get; set; } = new();
+    public List<AiConnection> AiConnections { get; set; } = new();
 
     public Ring? Find(Guid id) => Rings.FirstOrDefault(r => r.Id == id);
+    public AiConnection? FindConnection(Guid id) => AiConnections.FirstOrDefault(c => c.Id == id);
 }
 
 public sealed class GlobalSettings
@@ -55,6 +57,7 @@ public sealed class Slice
 [JsonDerivedType(typeof(MacroAction), "macro")]
 [JsonDerivedType(typeof(LaunchAction), "launch")]
 [JsonDerivedType(typeof(NestedRingAction), "ring")]
+[JsonDerivedType(typeof(AiChatAction), "ai")]
 public abstract class SliceAction { }
 
 public sealed class PasteTextAction : SliceAction
@@ -89,3 +92,45 @@ public abstract class MacroStep { }
 public sealed class KeyStep : MacroStep { public string Combo { get; set; } = ""; }
 public sealed class TextStep : MacroStep { public string Text { get; set; } = ""; }
 public sealed class DelayStep : MacroStep { public int Ms { get; set; } = 100; }
+
+public enum AiFormat { OpenAi, Anthropic, Gemini, Custom }
+
+public enum AiInput { Selection, Clipboard, None }
+
+/// <summary>An AI service a slice can talk to. Secret values (the key, secret headers) are stored encrypted,
+/// as "dpapi:..." strings; see ISecretProtector.</summary>
+public sealed class AiConnection
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "New connection";
+    public AiFormat Format { get; set; } = AiFormat.OpenAi;
+    public string Endpoint { get; set; } = "";
+    public string Model { get; set; } = "";
+    public string ApiKey { get; set; } = "";
+    public List<AiHeader> Headers { get; set; } = new();
+    public double? Temperature { get; set; }
+    public int? MaxTokens { get; set; }
+    /// <summary>Custom format only: the request body, with {{model}} {{prompt}} {{system}} {{api_key}} {{messages}}.</summary>
+    public string BodyTemplate { get; set; } = "";
+    /// <summary>Custom format only: where the answer is in the response, e.g. choices[0].message.content.</summary>
+    public string ResponsePath { get; set; } = "";
+}
+
+public sealed class AiHeader
+{
+    public string Name { get; set; } = "";
+    public string Value { get; set; } = "";
+    public bool Secret { get; set; }
+}
+
+/// <summary>Opens the chat panel on a connection, optionally starting from the selected text and a preset instruction.</summary>
+public sealed class AiChatAction : SliceAction
+{
+    public Guid ConnectionId { get; set; }
+    public string Instruction { get; set; } = "";
+    public string SystemPrompt { get; set; } = "";
+    public AiInput Input { get; set; } = AiInput.Selection;
+    public bool SendImmediately { get; set; } = true;
+    /// <summary>False: no chat window; the answer goes to the clipboard and a notification says so.</summary>
+    public bool ShowChat { get; set; } = true;
+}

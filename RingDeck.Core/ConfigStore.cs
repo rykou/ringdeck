@@ -87,6 +87,20 @@ public sealed class ConfigStore
         config.Settings.ExcludedApps = (config.Settings.ExcludedApps ?? new())
             .Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        config.AiConnections = (config.AiConnections ?? new()).Where(c => c is not null).ToList();
+        var connectionIds = new HashSet<Guid>();
+        foreach (var c in config.AiConnections)
+        {
+            if (c.Id == Guid.Empty || !connectionIds.Add(c.Id)) { c.Id = Guid.NewGuid(); connectionIds.Add(c.Id); }
+            c.Name ??= "";
+            c.Endpoint ??= "";
+            c.Model ??= "";
+            c.ApiKey ??= "";
+            c.BodyTemplate ??= "";
+            c.ResponsePath ??= "";
+            c.Headers = (c.Headers ?? new()).Where(h => h is not null).ToList();
+            foreach (var h in c.Headers) { h.Name ??= ""; h.Value ??= ""; }
+        }
         config.Rings = (config.Rings ?? new()).Where(r => r is not null).ToList();
         var seen = new HashSet<Guid>();
         foreach (var ring in config.Rings)
@@ -101,6 +115,7 @@ public sealed class ConfigStore
                 if (slice.Id == Guid.Empty) slice.Id = Guid.NewGuid();
                 slice.Label ??= "";
                 slice.Icon ??= "";
+                if (slice.Action is AiChatAction ai) { ai.Instruction ??= ""; ai.SystemPrompt ??= ""; }
                 if (slice.Action is MacroAction macro)
                     macro.Steps = (macro.Steps ?? new()).Where(s => s is not null).ToList();
             }

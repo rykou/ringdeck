@@ -22,6 +22,26 @@ public partial class EditorWindow : Window
 
     int _touchCount;
 
+    /// <summary>Developer aid for `--shot-editor`: a picture of the connection dialog (opened without blocking, then closed).</summary>
+    internal async Task SaveConnectionShot(AiConnection connection, string path)
+    {
+        var dialog = new ConnectionWindow(connection) { Owner = this, Left = 40, Top = 40, WindowStartupLocation = WindowStartupLocation.Manual };
+        dialog.Show();
+        await Task.Delay(2500);                            // let it list the service's models
+        dialog.UpdateLayout();
+        var root = (FrameworkElement)dialog.Content;
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth + 36, (int)root.ActualHeight + 36, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+        var backdrop = new System.Windows.Media.DrawingVisual();
+        using (var dc = backdrop.RenderOpen())
+            dc.DrawRectangle(Theme.Frozen(System.Windows.Media.Color.FromRgb(0x20, 0x20, 0x20)), null, new Rect(0, 0, root.ActualWidth + 36, root.ActualHeight + 36));
+        bitmap.Render(backdrop);
+        bitmap.Render(root);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using (var file = File.Create(path)) encoder.Save(file);
+        dialog.Close();
+    }
+
     /// <summary>Developer aid for `--shot-editor`: opens the first drop-down of the ring panel and reports, after a
     /// moment, whether it stayed open and how many edits the editor thought happened (should be none).</summary>
     internal void ProbeDropDown(string path, Action done)
@@ -45,7 +65,7 @@ public partial class EditorWindow : Window
     /// <summary>Developer aid for `--shot-editor`: saves the window's content as a PNG, optionally with a slice selected.</summary>
     internal void SaveShot(string path, bool selectSlice)
     {
-        if (selectSlice && _ring?.Slices.FirstOrDefault(s => s.Action is MacroAction) is { } slice) ShowSlice(slice);
+        if (selectSlice && (_ring?.Slices.FirstOrDefault(s => s.Action is AiChatAction) ?? _ring?.Slices.FirstOrDefault(s => s.Action is MacroAction)) is { } slice) ShowSlice(slice);
         UpdateLayout();
         var root = (FrameworkElement)Content;
         var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth + 32, (int)root.ActualHeight + 32, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
@@ -68,6 +88,7 @@ public partial class EditorWindow : Window
         Closing += (_, _) => { StopRecording(); _app.Controller.Capture = null; Flush(); };
         settingsPanel.DataContext = Config.Settings;
         excludedBox.Text = string.Join(Environment.NewLine, Config.Settings.ExcludedApps);
+        connectionList.ItemsSource = Config.AiConnections;
         runningBox.ItemsSource = new[] { RunningPrompt };
         runningBox.SelectedIndex = 0;
         autostartBox.IsChecked = Autostart.IsEnabled();
@@ -149,11 +170,39 @@ public partial class EditorWindow : Window
 
     void OnShowSettings(object sender, RoutedEventArgs e)
     {
+        connectionList.Items.Refresh();
         ringPanel.Visibility = slicePanel.Visibility = Visibility.Collapsed;
         settingsPanel.Visibility = Visibility.Visible;
     }
 
     void OnAutostart(object sender, RoutedEventArgs e) => Autostart.Set(autostartBox.IsChecked == true);
+
+    // ----- AI connections -----
+
+    void OnNewConnection(object sender, RoutedEventArgs e)
+    {
+        var c = new AiConnection { Name = "AI " + (Config.AiConnections.Count + 1) };
+        if (!EditConnection(c)) return;
+        Config.AiConnections.Add(c);
+        connectionList.Items.Refresh();
+        Touch();
+    }
+
+    void OnEditConnection(object sender, RoutedEventArgs e)
+    {
+        if (connectionList.SelectedItem is AiConnection c && EditConnection(c)) { connectionList.Items.Refresh(); Touch(); }
+    }
+
+    void OnDeleteConnection(object sender, RoutedEventArgs e)
+    {
+        if (connectionList.SelectedItem is not AiConnection c) return;
+        var users = Config.Rings.SelectMany(r => r.Slices).Count(s => s.Action is AiChatAction a && a.ConnectionId == c.Id);
+        var question = users == 0 ? $"Delete the connection \"{c.Name}\"?" : $"Delete \"{c.Name}\"? {users} slice(s) use it and will need another connection.";
+        if (MessageBox.Show(this, question, "RingDeck", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+        Config.AiConnections.Remove(c);
+        connectionList.Items.Refresh();
+        Touch();
+    }
 
     // ----- programs where rings are off -----
 
@@ -312,7 +361,7 @@ public partial class EditorWindow : Window
             "RingDeck", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.No;
         var dialog = new SaveFileDialog { Filter = "RingDeck rings (*.json)|*.json", FileName = all ? "ringdeck-rings.json" : _ring!.Name + ".json" };
         if (dialog.ShowDialog(this) != true) return;
-        try { File.WriteAllText(dialog.FileName, ConfigStore.ToJson(all ? Config : ConfigTransfer.Export(Config, _ring!.Id))); }
+        try { File.WriteAllText(dialog.FileName, ConfigStore.ToJson(all ? ConfigTransfer.ExportAll(Config) : ConfigTransfer.Export(Config, _ring!.Id))); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             MessageBox.Show(this, ex.Message, "RingDeck", MessageBoxButton.OK, MessageBoxImage.Error);
