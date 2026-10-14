@@ -5,7 +5,7 @@ Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut
 [![Download](https://img.shields.io/github/v/release/rykou/ringdeck?label=Download&logo=windows)](https://github.com/rykou/ringdeck/releases/latest)
 [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-PayPal-003087?logo=paypal&logoColor=white)](https://paypal.me/rykou893)
 
-[![RingDeck 0.3.3: hold a shortcut, flick toward a slice, release. Five ring styles, per-app rings, workflows, brand logos](docs/demo.gif)](docs/demo.mp4)
+[![RingDeck 0.3.4: rings that branch into a tree, slices that wait before they run, web requests and ring icons](docs/demo.gif)](docs/demo.mp4)
 
 - Any number of rings, each on its own global shortcut (keyboard or mouse button).
 - Slices paste text, play keystroke macros, open apps, files and links, or open another ring.

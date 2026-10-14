@@ -67,7 +67,7 @@ sealed class Simulation
         var w = new Window
         {
             WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, ShowActivated = false, Topmost = true,
-            Background = new SolidColorBrush(Color.FromRgb(0x16, 0x1A, 0x22)), Left = _area.X / dpi, Top = _area.Y / dpi,
+            Background = new SolidColorBrush(Color.FromRgb(0x0D, 0x11, 0x17)), Left = _area.X / dpi, Top = _area.Y / dpi,
             Width = _area.Width / dpi, Height = _area.Height / dpi,
         };
         w.Show();
@@ -87,6 +87,10 @@ sealed class Simulation
             // into the timed nested ring, on to its first slice, back over the first ring, let go on a plain slice
             "tree" => [new(0.25, SliceOf(Nested)), new(0.55 + nestedWait + 0.6, SliceOf(_ => true), 0.35),
                        new(0.55 + nestedWait + 1.6, SliceOfFirst(ring, s => s == plain), 0.35), new(0.55 + nestedWait + 2.4, null)],
+            // for the demo video: wait on the timed nested slice, branch one ring deeper, rest, fold back, let go
+            "showcase" => [new(0.4, SliceOf(Nested), 0.35), new(0.75 + nestedWait + 0.9, SliceOf(Nested), 0.4),
+                           new(0.75 + nestedWait + 2.2, SliceOf(_ => true), 0.35), new(0.75 + nestedWait + 3.3, SliceOfFirst(ring, s => s == plain), 0.5),
+                           new(0.75 + nestedWait + 4.6, null)],
             // the reported bug: wait on the timed nested slice until its ring opens, then let go right there
             "release-on-opened" => [new(0.25, SliceOf(Nested)), new(0.55 + nestedWait + 0.7, null)],
             // a timed plain slice, let go after its circle is full: it must run and everything close
@@ -111,7 +115,8 @@ sealed class Simulation
         var t = (DateTime.Now - _t0).TotalSeconds;
         Drive(t);
         var s = _c.Session;
-        _log.Add($"{t:0.000} open={s.IsOpen} depth={s.Depth} selected={s.Selected} hold={s.HoldProgress:0.00} ring={s.Current?.Name ?? "-"} " +
+        var (px, py) = _c.FakePointer ?? (0, 0);
+        _log.Add($"{t:0.000} ptr={px - _area.X},{py - _area.Y} open={s.IsOpen} depth={s.Depth} selected={s.Selected} hold={s.HoldProgress:0.00} ring={s.Current?.Name ?? "-"} " +
                  string.Join(" ", _c.Windows.Select((w, i) => $"w{i}={w.Current.Ring?.Name ?? "-"}:{w.Current.Animator.Phase}:a{w.Current.Animator.Pose.Alpha:0.00}:dim{w.Current.Dim:0.00}")));
         _frames.Add(ScreenGrab.Grab(_area.X, _area.Y, _area.Width, _area.Height));
         if (t < _end) return;
