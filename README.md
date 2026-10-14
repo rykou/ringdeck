@@ -2,9 +2,7 @@
 
 Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut, flick toward a slice, release.
 
-[![RingDeck: hold a shortcut, flick toward a slice, release](docs/demo.jpg)](docs/demo.mp4)
-
-▶ [Watch the 21-second video](docs/demo.mp4) (with sound)
+[![RingDeck: hold a shortcut, flick toward a slice, release](docs/demo.gif)](docs/demo.mp4)
 
 - Any number of rings, each on its own global shortcut (keyboard or mouse button).
 - Slices paste text, play keystroke macros, open apps, files and links, or open another ring.
