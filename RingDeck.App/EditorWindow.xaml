@@ -19,7 +19,7 @@
       <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
         <UniformGrid Columns="3">
           <Button Content="New" Click="OnAddRing" Margin="0,0,4,0" />
-          <Button Content="Copy" ToolTip="Duplicate this ring" Click="OnDuplicateRing" Margin="0,0,4,0" />
+          <Button Content="Clone" ToolTip="Duplicate this ring with all its slices" Click="OnDuplicateRing" Margin="0,0,4,0" />
           <Button Content="Delete" Click="OnDeleteRing" />
         </UniformGrid>
         <UniformGrid Columns="3" Margin="0,6,0,0">
@@ -28,7 +28,8 @@
           <Button Content="Settings" Click="OnShowSettings" />
         </UniformGrid>
       </StackPanel>
-      <ListBox x:Name="ringList" SelectionChanged="OnRingSelected">
+      <ListBox x:Name="ringList" SelectionChanged="OnRingSelected" AllowDrop="True"
+               DragOver="OnRingListDragOver" DragLeave="OnRingListDragLeave" Drop="OnRingListDrop">
         <ListBox.ItemTemplate>
           <DataTemplate DataType="{x:Type core:Ring}">
             <DockPanel Margin="2,4">
@@ -49,11 +50,12 @@
         <DockPanel DockPanel.Dock="Bottom" Margin="16">
           <Button DockPanel.Dock="Right" Content="Add slice" Click="OnAddSlice" />
           <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap"
-                     Text="Click a slice to edit it. Drag a slice onto another to reorder. Click the centre for ring settings." />
+                     x:Name="previewHint" Text="{x:Static local:EditorWindow.PreviewHintText}" />
         </DockPanel>
         <Viewbox Margin="16" Stretch="Uniform" MaxWidth="760" MaxHeight="760">
           <local:RingVisual x:Name="preview" Width="600" Height="600"
-                            MouseLeftButtonDown="OnPreviewDown" MouseLeftButtonUp="OnPreviewUp" />
+                            MouseLeftButtonDown="OnPreviewDown" MouseLeftButtonUp="OnPreviewUp"
+                            MouseMove="OnPreviewMove" AllowDrop="True" DragOver="OnPreviewDragOver" Drop="OnPreviewDrop" />
         </Viewbox>
       </DockPanel>
     </Border>

@@ -260,34 +260,145 @@ public partial class EditorWindow : Window
         preview.InvalidateVisual();
     }
 
-    Slice? SliceUnder(MouseEventArgs e)
+    public const string PreviewHintText =
+        "Click a slice to edit it, or the centre for ring settings. Drag a slice to reorder it, or onto a ring in the list to move it there (Ctrl copies).";
+    const string SliceFormat = "RingDeck.Slice";
+    Point _dragStart;
+    bool _pressed;                       // the mouse went down on the preview and no drag has started
+    ListBoxItem? _dropTarget;
+    DispatcherTimer? _hintTimer;
+
+    Slice? SliceAt(Point p)
     {
         if (_ring is null) return null;
-        var p = e.GetPosition(preview);
         var index = RingGeometry.SliceAt(p.X - preview.ActualWidth / 2, p.Y - preview.ActualHeight / 2, _ring.Slices.Count, 44);
         return index < 0 ? null : _ring.Slices[index];
     }
 
     void OnPreviewDown(object sender, MouseButtonEventArgs e)
     {
-        _dragging = SliceUnder(e);
-        preview.CaptureMouse();
+        _dragStart = e.GetPosition(preview);
+        _dragging = SliceAt(_dragStart);
+        _pressed = true;
+    }
+
+    /// <summary>Pressing on a slice and moving starts a real drag, so the slice can leave the preview for the ring list.</summary>
+    void OnPreviewMove(object sender, MouseEventArgs e)
+    {
+        if (_dragging is null || e.LeftButton != MouseButtonState.Pressed || _ring is null) return;
+        var d = e.GetPosition(preview) - _dragStart;
+        if (Math.Abs(d.X) < SystemParameters.MinimumHorizontalDragDistance * 2 && Math.Abs(d.Y) < SystemParameters.MinimumVerticalDragDistance * 2) return;
+        var slice = _dragging;
+        _dragging = null;
+        _pressed = false;
+        // While the drag lasts, the slice fades in the preview and a picture of it follows the pointer.
+        var ghost = new DragGhost(slice);
+        void Follow(object? s, GiveFeedbackEventArgs a) => ghost.FollowPointer();
+        preview.Faded = _ring.Slices.IndexOf(slice);
+        preview.InvalidateVisual();
+        ghost.Show();
+        ghost.FollowPointer();
+        preview.GiveFeedback += Follow;
+        try { DragDrop.DoDragDrop(preview, new DataObject(SliceFormat, slice.Id.ToString()), DragDropEffects.Move | DragDropEffects.Copy); }
+        finally
+        {
+            preview.GiveFeedback -= Follow;
+            ghost.Close();
+            preview.Faded = -1;
+            ClearDropTarget();
+            RefreshPreview();
+        }
     }
 
     void OnPreviewUp(object sender, MouseButtonEventArgs e)
     {
-        preview.ReleaseMouseCapture();
-        var target = SliceUnder(e);
-        if (_ring is not null && _dragging is not null && target is not null && !ReferenceEquals(target, _dragging))
+        if (_pressed) ShowSlice(SliceAt(e.GetPosition(preview)));   // a click (on a slice, or the centre for ring settings)
+        _pressed = false;
+        _dragging = null;
+    }
+
+    Slice? DraggedSlice(DragEventArgs e) =>
+        e.Data.GetDataPresent(SliceFormat) && Guid.TryParse(e.Data.GetData(SliceFormat) as string, out var id)
+            ? _ring?.Slices.FirstOrDefault(s => s.Id == id) : null;
+
+    static bool CopyKey(DragEventArgs e) => (e.KeyStates & DragDropKeyStates.ControlKey) != 0;
+
+    // ----- dropping inside the preview: reorder -----
+
+    void OnPreviewDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = DraggedSlice(e) is not null ? DragDropEffects.Move : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    void OnPreviewDrop(object sender, DragEventArgs e)
+    {
+        if (_ring is null || DraggedSlice(e) is not { } slice) return;
+        var target = SliceAt(e.GetPosition(preview));
+        if (target is not null && !ReferenceEquals(target, slice))
         {
             var to = _ring.Slices.IndexOf(target);
-            _ring.Slices.Remove(_dragging);
-            _ring.Slices.Insert(to, _dragging);
-            ShowSlice(_dragging);
+            _ring.Slices.Remove(slice);
+            _ring.Slices.Insert(to, slice);
             Touch();
         }
-        else ShowSlice(target);
-        _dragging = null;
+        ShowSlice(slice);
+        e.Handled = true;
+    }
+
+    // ----- dropping on the ring list: move (or copy with Ctrl) to that ring -----
+
+    ListBoxItem? RingItemUnder(DragEventArgs e) =>
+        ItemsControl.ContainerFromElement(ringList, (DependencyObject)e.OriginalSource) as ListBoxItem;
+
+    void OnRingListDragOver(object sender, DragEventArgs e)
+    {
+        var item = RingItemUnder(e);
+        var ring = item?.DataContext as Ring;
+        var ok = DraggedSlice(e) is not null && ring is not null && (CopyKey(e) || !ReferenceEquals(ring, _ring));
+        e.Effects = !ok ? DragDropEffects.None : CopyKey(e) ? DragDropEffects.Copy : DragDropEffects.Move;
+        if (!ReferenceEquals(item, _dropTarget))
+        {
+            ClearDropTarget();
+            if (ok && item is not null) { _dropTarget = item; item.Background = Theme.Frozen(Theme.Accent, 0.28); }
+        }
+        e.Handled = true;
+    }
+
+    void OnRingListDragLeave(object sender, DragEventArgs e) => ClearDropTarget();
+
+    void ClearDropTarget()
+    {
+        if (_dropTarget is null) return;
+        _dropTarget.ClearValue(BackgroundProperty);
+        _dropTarget = null;
+    }
+
+    void OnRingListDrop(object sender, DragEventArgs e)
+    {
+        ClearDropTarget();
+        e.Handled = true;
+        if (_ring is null || DraggedSlice(e) is not { } slice || RingItemUnder(e)?.DataContext is not Ring target) return;
+        var copy = CopyKey(e);
+        if (!copy && ReferenceEquals(target, _ring)) return;
+        if (SliceMover.Transfer(Config, _ring, slice, target, copy) is { } refused)
+        {
+            MessageBox.Show(this, refused, "RingDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        ShowSlice(copy ? _slice : null);
+        Touch();
+        Hint($"{(copy ? "Copied" : "Moved")} \"{slice.Label}\" to \"{target.Name}\".");
+    }
+
+    /// <summary>Shows a message where the preview hint is, for a few seconds.</summary>
+    void Hint(string text)
+    {
+        previewHint.Text = text;
+        _hintTimer?.Stop();
+        _hintTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        _hintTimer.Tick += (_, _) => { _hintTimer?.Stop(); previewHint.Text = PreviewHintText; };
+        _hintTimer.Start();
     }
 
     void OnAddSlice(object sender, RoutedEventArgs e)

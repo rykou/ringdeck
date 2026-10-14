@@ -35,10 +35,20 @@ public partial class EditorWindow
         var add = slicePanel.Children;
 
         var header = new DockPanel();
-        var delete = new Button { Content = "Delete slice" };
+        var delete = new Button { Content = "Delete", ToolTip = "Delete this slice" };
         delete.Click += (_, _) => { _ring.Slices.Remove(slice); ShowSlice(null); Touch(); };
+        var duplicate = new Button { Content = "Duplicate", ToolTip = "Add a copy of this slice next to it", Margin = new Thickness(0, 0, 6, 0) };
+        duplicate.Click += (_, _) =>
+        {
+            var copy = ConfigTransfer.DuplicateSlice(slice);
+            _ring.Slices.Insert(_ring.Slices.IndexOf(slice) + 1, copy);
+            ShowSlice(copy);
+            Touch();
+        };
         DockPanel.SetDock(delete, Dock.Right);
+        DockPanel.SetDock(duplicate, Dock.Right);
         header.Children.Add(delete);
+        header.Children.Add(duplicate);
         header.Children.Add(new TextBlock { Text = "Slice", Style = (Style)Application.Current.Resources["Heading"] });
         add.Add(header);
 

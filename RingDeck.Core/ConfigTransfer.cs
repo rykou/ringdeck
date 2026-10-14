@@ -61,6 +61,15 @@ public static class ConfigTransfer
         return copy.Rings;
     }
 
+    /// <summary>An independent copy of a slice (same icon, colour and action) with a new id.</summary>
+    public static Slice DuplicateSlice(Slice slice)
+    {
+        var copy = Clone(new AppConfig { Rings = { new Ring { Slices = { slice } } } }).Rings[0].Slices[0];
+        copy.Id = Guid.NewGuid();
+        copy.Label = slice.Label.Trim().Length > 0 ? slice.Label + " copy" : "Copy";
+        return copy;
+    }
+
     public static Ring Duplicate(Ring ring)
     {
         var copy = Clone(new AppConfig { Rings = { ring } }).Rings[0];

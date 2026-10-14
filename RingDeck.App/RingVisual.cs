@@ -18,6 +18,8 @@ public sealed class RingVisual : FrameworkElement
     public Ring? Ring { get; set; }
     public RingAnimator Animator { get; set; } = new();
     public int Selected { get; set; } = -1;
+    /// <summary>A slice drawn faded: the one being dragged in the editor.</summary>
+    public int Faded { get; set; } = -1;
     public double Radius { get; set; } = 120;
     public Vector Offset { get; set; }
     public Func<Guid, Ring?>? FindRing { get; set; }
@@ -56,6 +58,7 @@ public sealed class RingVisual : FrameworkElement
             var r = RingSession.SliceSize / 2 * scale;
             var fillColor = Theme.Parse(slice.Color, Color.FromRgb(0x2D, 0x2D, 0x3A));
             var selected = i == Selected;
+            if (i == Faded) dc.PushOpacity(0.25);
             if (selected) dc.DrawEllipse(Theme.Frozen(accentColor, 0.28), null, at, r + 7, r + 7);
             dc.DrawEllipse(Theme.Frozen(fillColor), new Pen(selected ? accent : edge, selected ? 2.5 : 1), at, r, r);
             DrawIcon(dc, slice, at, r, Contrast(fillColor), dpi);
@@ -65,6 +68,7 @@ public sealed class RingVisual : FrameworkElement
             // it only moves down a little to clear the highlight ring.
             if (ring.ShowLabels && slice.Label.Length > 0)
                 DrawText(dc, slice.Label, new Point(at.X, at.Y + r + (selected ? 9 : 3)), 11, Theme.Frozen(Colors.White), 120, dpi, false, true);
+            if (i == Faded) dc.Pop();
         }
 
         if (Selected >= 0 && Selected < count)
@@ -108,7 +112,7 @@ public sealed class RingVisual : FrameworkElement
     static Color Contrast(Color background) =>
         0.299 * background.R + 0.587 * background.G + 0.114 * background.B > 150 ? Color.FromRgb(0x16, 0x16, 0x1A) : Colors.White;
 
-    void DrawIcon(DrawingContext dc, Slice slice, Point at, double r, Color color, double dpi)
+    static void DrawIcon(DrawingContext dc, Slice slice, Point at, double r, Color color, double dpi)
     {
         if (slice.Icon.StartsWith("file:", StringComparison.Ordinal) && Image(slice.Icon) is { } image)
         {
@@ -122,6 +126,20 @@ public sealed class RingVisual : FrameworkElement
         var text = new FormattedText(glyph, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
             isLetter ? TextFace : GlyphFace, r * 0.9, Theme.Frozen(color), dpi);
         dc.DrawText(text, new Point(at.X - text.Width / 2, at.Y - text.Height / 2));
+    }
+
+    /// <summary>One slice on its own, slightly enlarged and highlighted: the picture that follows the mouse while a
+    /// slice is dragged in the editor.</summary>
+    public static void DrawLoose(DrawingContext dc, Slice slice, Point at, Color accentColor, double dpi)
+    {
+        var r = RingSession.SliceSize / 2 * 1.15;
+        var fill = Theme.Parse(slice.Color, Color.FromRgb(0x2D, 0x2D, 0x3A));
+        dc.DrawEllipse(Theme.Frozen(Colors.Black, 0.35), null, new Point(at.X + 2, at.Y + 6), r + 4, r + 4);   // soft shadow
+        dc.DrawEllipse(Theme.Frozen(accentColor, 0.28), null, at, r + 8, r + 8);
+        dc.DrawEllipse(Theme.Frozen(fill), new Pen(Theme.Frozen(accentColor), 2.5), at, r, r);
+        DrawIcon(dc, slice, at, r, Contrast(fill), dpi);
+        if (slice.Label.Length > 0)
+            DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 10), 12, Theme.Frozen(Colors.White), 140, dpi, false, true);
     }
 
     static void DrawText(DrawingContext dc, string value, Point at, double size, Brush brush, double maxWidth, double dpi, bool middle, bool shadow)

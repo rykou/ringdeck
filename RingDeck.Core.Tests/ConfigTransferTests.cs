@@ -60,4 +60,42 @@ public class ConfigTransferTests
         Assert.Equal("t", ((PasteTextAction)main.Slices[1].Action!).Text);
         Assert.Equal("file:abc.png", copy.Slices[1].Icon);
     }
+
+    [Fact]
+    public void DuplicateSliceIsADeepCopyWithANewId()
+    {
+        var original = new Slice
+        {
+            Label = "Rewrite", Icon = "glyph:x", Color = "#123456",
+            Action = new MacroAction { Steps = { new KeyStep { Combo = "Ctrl+A" }, new TextStep { Text = "hi" } } },
+        };
+        var copy = ConfigTransfer.DuplicateSlice(original);
+        Assert.NotEqual(original.Id, copy.Id);
+        Assert.Equal("Rewrite copy", copy.Label);
+        Assert.Equal("glyph:x", copy.Icon);
+        Assert.Equal("#123456", copy.Color);
+        var steps = Assert.IsType<MacroAction>(copy.Action).Steps;
+        Assert.Equal(2, steps.Count);
+        ((TextStep)steps[1]).Text = "changed";
+        Assert.Equal("hi", ((TextStep)((MacroAction)original.Action!).Steps[1]).Text);   // independent copy
+    }
+
+    [Fact]
+    public void DuplicateSliceKeepsAiSettingsAndConnection()
+    {
+        var id = Guid.NewGuid();
+        var copy = ConfigTransfer.DuplicateSlice(new Slice { Label = "Ask", Action = new AiChatAction { ConnectionId = id, Instruction = "Fix", ShowChat = false } });
+        var ai = Assert.IsType<AiChatAction>(copy.Action);
+        Assert.Equal(id, ai.ConnectionId);
+        Assert.Equal("Fix", ai.Instruction);
+        Assert.False(ai.ShowChat);
+    }
+
+    [Fact]
+    public void DuplicateSliceWithoutActionOrLabel()
+    {
+        var copy = ConfigTransfer.DuplicateSlice(new Slice { Label = "", Action = null });
+        Assert.Null(copy.Action);
+        Assert.Equal("Copy", copy.Label);
+    }
 }
