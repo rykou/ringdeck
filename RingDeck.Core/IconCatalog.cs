@@ -16,6 +16,23 @@ public static class IconCatalog
     public static List<IconEntry> ParseIcons(string json) => Parse(json, e =>
         new IconEntry("icon:" + e.GetProperty("c").GetInt32().ToString("x"), e.GetProperty("n").GetString() ?? "", "Icons", Array.Empty<string>()));
 
+    /// <summary>Brand logos (Simple Icons). Keywords hold the slug and aliases; the colour is kept per id.</summary>
+    public static List<IconEntry> ParseBrands(string json) => Parse(json, e =>
+    {
+        var slug = e.GetProperty("s").GetString() ?? "";
+        var keywords = new List<string> { slug };
+        if (e.TryGetProperty("k", out var k)) keywords.AddRange(k.EnumerateArray().Select(x => (x.GetString() ?? "").ToLowerInvariant()));
+        var hex = e.TryGetProperty("h", out var h) ? h.GetString() ?? "" : "";
+        BrandColors["brand:" + slug] = "#" + hex;
+        return new IconEntry("brand:" + slug, e.GetProperty("n").GetString() ?? "", "Brands", keywords);
+    });
+
+    static readonly Dictionary<string, string> BrandColors = new();
+
+    /// <summary>A brand's own colour as "#RRGGBB", or null when the id isn't among the given brands.</summary>
+    public static string? BrandColor(IEnumerable<IconEntry> brands, string id) =>
+        brands.Any(b => b.Id == id) && BrandColors.TryGetValue(id, out var hex) ? hex : null;
+
     static List<IconEntry> Parse(string json, Func<JsonElement, IconEntry> read)
     {
         var list = new List<IconEntry>();
@@ -70,7 +87,7 @@ public static class IconCatalog
         var colon = icon.IndexOf(':');
         if (colon <= 0) return ("", "");
         var kind = icon[..colon];
-        return kind is "emoji" or "icon" or "glyph" or "file" ? (kind, icon[(colon + 1)..]) : ("", "");
+        return kind is "emoji" or "icon" or "glyph" or "file" or "brand" ? (kind, icon[(colon + 1)..]) : ("", "");
     }
 
     /// <summary>The character to draw with the icon font for an "icon:" id.</summary>

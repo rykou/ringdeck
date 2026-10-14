@@ -23,6 +23,9 @@
     <Resource Include="Assets/FluentSystemIcons-Regular.ttf" />
     <Resource Include="Assets/icons.json" />
     <Resource Include="Assets/emoji.zip" />
+    <Resource Include="Assets/brands.zip" />
+    <Resource Include="Assets/open.wav" />
+    <Resource Include="Assets/select.wav" />
     <ProjectReference Include="../RingDeck.Core/RingDeck.Core.csproj" />
     <ProjectReference Include="../RingDeck.Windows/RingDeck.Windows.csproj" />
   </ItemGroup>

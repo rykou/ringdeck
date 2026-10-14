@@ -47,3 +47,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+3. Simple Icons
+   https://github.com/simple-icons/simple-icons
+   Used for: the brand logos offered as slice icons (RingDeck.App/Assets/brands.zip).
+
+   Simple Icons is released under CC0 1.0 Universal (public domain). RingDeck includes only the logos that carry
+   no license of their own or are themselves CC0; logos that Simple Icons lists under any other license are left out.
+
+   All brand logos are trademarks of their respective owners. Their inclusion does not imply any affiliation with or
+   endorsement by those owners; they are offered so users can mark a slice that opens that product.

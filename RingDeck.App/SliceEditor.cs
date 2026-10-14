@@ -11,7 +11,7 @@ namespace RingDeck.App;
 
 public partial class EditorWindow
 {
-    static readonly string[] ActionNames = { "Nothing", "Paste text", "Keystroke macro", "Open app, file or link", "Open another ring", "AI chat" };
+    static readonly string[] ActionNames = { "Nothing", "Paste text", "Macro / workflow", "Open app, file or link", "Open another ring", "AI chat" };
     MacroRecorder? _recorder;
 
     static int ActionIndex(SliceAction? action) => action switch
@@ -166,6 +166,19 @@ public partial class EditorWindow
         row.Children.Add(browse);
         row.Children.Add(target);
         slicePanel.Children.Add(row);
+        var installed = new Button { Content = "Installed app…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0),
+            ToolTip = "Pick from the apps in your Start menu: fills in the target, the name and the icon" };
+        installed.Click += (_, _) =>
+        {
+            var picker = new AppPickerWindow { Owner = this };
+            if (picker.ShowDialog() != true || picker.Result is not { } app || _slice is not { } slice) return;
+            launch.Target = app.Path;
+            if (slice.Label.Trim().Length == 0 || slice.Label == "New slice") slice.Label = app.Name;
+            slice.Icon = IconForApp(app);
+            ShowSlice(slice);
+            Touch();
+        };
+        slicePanel.Children.Add(installed);
         slicePanel.Children.Add(Caption("Arguments (optional)"));
         slicePanel.Children.Add(Bound(new TextBox(), TextBox.TextProperty, launch, nameof(LaunchAction.Arguments)));
         slicePanel.Children.Add(Caption("Start in folder (optional)"));
@@ -189,7 +202,9 @@ public partial class EditorWindow
 
     void MacroEditor(MacroAction macro)
     {
-        slicePanel.Children.Add(Caption("Steps, played top to bottom. Esc stops a running macro."));
+        var stepsCaption = Caption("Steps, played top to bottom. If a step fails the rest are skipped. Esc stops a running macro.");
+        stepsCaption.TextWrapping = TextWrapping.Wrap;
+        slicePanel.Children.Add(stepsCaption);
         for (var i = 0; i < macro.Steps.Count; i++) slicePanel.Children.Add(StepRow(macro, i));
 
         var buttons = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
@@ -199,9 +214,13 @@ public partial class EditorWindow
             button.Click += (_, _) => { macro.Steps.Add(make()); ShowSlice(_slice); Touch(); };
             buttons.Children.Add(button);
         }
-        AddButton("Add keys", () => new KeyStep());
-        AddButton("Add text", () => new TextStep());
-        AddButton("Add wait", () => new DelayStep());
+        AddButton("Keys", () => new KeyStep());
+        AddButton("Type text", () => new TextStep());
+        AddButton("Paste text", () => new PasteStep());
+        AddButton("Wait", () => new DelayStep { Ms = 300 });
+        AddButton("Open", () => new LaunchStep());
+        AddButton("Focus window", () => new FocusStep());
+        AddButton("Set clipboard", () => new ClipboardStep());
         var record = new Button { Content = "Record", Margin = new Thickness(0, 0, 6, 6), ToolTip = "Records the keys you press in any window, without their timing" };
         record.Click += (_, _) =>
         {
@@ -252,8 +271,12 @@ public partial class EditorWindow
         Tool("\u2715", "Remove", () => macro.Steps.RemoveAt(index));
         Tool("\u2193", "Move down", () => { macro.Steps.RemoveAt(index); macro.Steps.Insert(index + 1, step); }, index < macro.Steps.Count - 1);
         Tool("\u2191", "Move up", () => { macro.Steps.RemoveAt(index); macro.Steps.Insert(index - 1, step); }, index > 0);
-        var label = new TextBlock { Width = 44, VerticalAlignment = VerticalAlignment.Center,
-            Text = step switch { KeyStep => "Keys", TextStep => "Text", _ => "Wait" } };
+        var label = new TextBlock { Width = 68, VerticalAlignment = VerticalAlignment.Center,
+            Text = step switch
+            {
+                KeyStep => "Keys", TextStep => "Type", PasteStep => "Paste", DelayStep => "Wait (ms)",
+                LaunchStep => "Open", FocusStep => "Focus", ClipboardStep => "Clipboard", _ => "",
+            } };
         DockPanel.SetDock(label, Dock.Left);
         row.Children.Add(label);
         row.Children.Add(step switch
@@ -261,6 +284,12 @@ public partial class EditorWindow
             KeyStep key => Bound(new ShortcutBox { AllowBare = true }, ShortcutBox.ValueProperty, key, nameof(KeyStep.Combo)),
             TextStep text => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap }, TextBox.TextProperty, text, nameof(TextStep.Text)),
             DelayStep wait => Bound(new TextBox { ToolTip = "Milliseconds" }, TextBox.TextProperty, wait, nameof(DelayStep.Ms)),
+            PasteStep paste => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, ToolTip = "Pasted through the clipboard. Placeholders like {date} work." },
+                TextBox.TextProperty, paste, nameof(PasteStep.Text)),
+            ClipboardStep clip => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, ToolTip = "Put on the clipboard and left there" },
+                TextBox.TextProperty, clip, nameof(ClipboardStep.Text)),
+            LaunchStep launch => OpenStepEditor(launch),
+            FocusStep focus => FocusStepEditor(focus),
             _ => new TextBlock(),
         });
         return row;
@@ -341,6 +370,83 @@ public partial class EditorWindow
             Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["SubtleBrush"],
             Text = "Your selected text is sent between <text> and </text>. For rewrites, end the prompt with \"Reply with only the rewritten text.\" In the chat: Enter sends, Ctrl+Enter pastes the reply back, Esc closes.",
         });
+    }
+
+    /// <summary>Two lines: the target with a browse button, then optional arguments.</summary>
+    UIElement OpenStepEditor(LaunchStep launch)
+    {
+        var top = new DockPanel();
+        var browse = new Button { Content = "…", ToolTip = "Choose a file or program", Width = 30, Padding = new Thickness(0), Margin = new Thickness(4, 0, 0, 0) };
+        var target = Bound(new TextBox { ToolTip = "App, file, folder or web address" }, TextBox.TextProperty, launch, nameof(LaunchStep.Target));
+        browse.Click += (_, _) =>
+        {
+            var dialog = new OpenFileDialog { Filter = "All files|*.*" };
+            if (dialog.ShowDialog(this) == true) target.Text = dialog.FileName;
+        };
+        DockPanel.SetDock(browse, Dock.Right);
+        top.Children.Add(browse);
+        top.Children.Add(target);
+        var panel = new StackPanel();
+        panel.Children.Add(top);
+        panel.Children.Add(Labelled("Arguments", Bound(new TextBox { ToolTip = "Arguments (optional)" }, TextBox.TextProperty, launch, nameof(LaunchStep.Arguments))));
+        return panel;
+    }
+
+    /// <summary>Two lines: program with a picker of the windows open now (fills both fields), then part of the title.</summary>
+    UIElement FocusStepEditor(FocusStep focus)
+    {
+        var program = Bound(new TextBox { ToolTip = "Program, e.g. outlook.exe (optional)" }, TextBox.TextProperty, focus, nameof(FocusStep.Program));
+        var title = Bound(new TextBox { ToolTip = "Part of the window title (optional)" }, TextBox.TextProperty, focus, nameof(FocusStep.Title));
+        var pick = new ComboBox { Width = 40, MinWidth = 0, ToolTip = "Pick one of the windows open now", Margin = new Thickness(4, 0, 0, 0) };
+        List<WindowFocuser.OpenWindow> windows = new();
+        pick.DropDownOpened += (_, _) =>
+        {
+            windows = WindowFocuser.OpenWindows();
+            _loading = true;
+            pick.ItemsSource = windows.Select(w => $"{w.Program} — {w.Title}").ToList();
+            pick.SelectedIndex = -1;
+            _loading = false;
+        };
+        pick.SelectionChanged += (_, e) =>
+        {
+            e.Handled = true;
+            if (_loading || pick.SelectedIndex < 0 || pick.SelectedIndex >= windows.Count) return;
+            var w = windows[pick.SelectedIndex];
+            program.Text = w.Program;
+            title.Text = w.Title.Length > 60 ? w.Title[..60] : w.Title;
+        };
+        var top = new DockPanel();
+        DockPanel.SetDock(pick, Dock.Right);
+        top.Children.Add(pick);
+        top.Children.Add(program);
+        var panel = new StackPanel();
+        panel.Children.Add(top);
+        panel.Children.Add(Labelled("Title has", title));
+        return panel;
+    }
+
+    static UIElement Labelled(string text, UIElement field)
+    {
+        var row = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
+        var label = new TextBlock { Text = text, Width = 72, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)Application.Current.Resources["SubtleBrush"] };
+        DockPanel.SetDock(label, Dock.Left);
+        row.Children.Add(label);
+        row.Children.Add(field);
+        return row;
+    }
+
+    /// <summary>The brand logo when the app's name is a known brand ("Spotify", "Google Chrome"), otherwise the app's own icon.</summary>
+    string IconForApp(AppPickerWindow.InstalledApp app)
+    {
+        var name = app.Name.Trim();
+        var brand = IconAssets.Brands.FirstOrDefault(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
+                                                         || b.Keywords.Contains(name.ToLowerInvariant()));
+        if (brand is not null) return brand.Id;
+        try { return _app.Icons.ImportPng(ToPng(IconStore.PictureBytes(app.Path)), fillsSlice: false); }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or NotSupportedException or System.Runtime.InteropServices.COMException)
+        {
+            return "";
+        }
     }
 
     /// <summary>Any picture the crop editor accepts, re-encoded as PNG (the icon store keeps PNGs).</summary>

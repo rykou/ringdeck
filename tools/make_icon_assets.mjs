@@ -2,14 +2,16 @@
 //   emoji.zip   one 96x96 PNG per emoji (from the Flat SVGs of microsoft/fluentui-emoji) plus emoji.json
 //   icons.json  name -> code point for the 24px Regular glyphs of microsoft/fluentui-system-icons
 //   FluentSystemIcons-Regular.ttf copied as is
-// Usage: node tools/make_icon_assets.mjs <fluentui-emoji checkout> <fluent-icons folder>
+//   brands.zip  one white 80x80 PNG per brand logo (from the simple-icons npm package) plus brands.json; only logos
+//               that carry no license of their own or CC0 are included
+// Usage: node tools/make_icon_assets.mjs <fluentui-emoji checkout> <fluent-icons folder> <simple-icons package folder>
 // Needs playwright-core and a Chromium (headless shell) to draw the SVGs.
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { chromium } from 'playwright-core';
 
-const [emojiRepo, iconsDir] = process.argv.slice(2);
+const [emojiRepo, iconsDir, brandsDir] = process.argv.slice(2);
 const out = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'RingDeck.App', 'Assets');
 const SIZE = 96;
 
@@ -63,11 +65,37 @@ for (const e of entries) {
   }, [svg, SIZE]);
   pngs.push({ name: `${e.u}.png`, data: Buffer.from(b64, 'base64') });
 }
-await browser.close();
 const index = entries.map(({ file, ...rest }) => rest);
 pngs.push({ name: 'emoji.json', data: Buffer.from(JSON.stringify(index)) });
 fs.writeFileSync(path.join(out, 'emoji.zip'), zip(pngs));
-console.log(`${icons.length} icons, ${entries.length} emoji`);
+
+// ---- brands ----
+const brandData = JSON.parse(fs.readFileSync(path.join(brandsDir, 'data', 'simple-icons.json'), 'utf8'));
+const brands = brandData.filter(b => !b.license || b.license.type === 'CC0-1.0');
+const brandPngs = [];
+for (const b of brands) {
+  const file = path.join(brandsDir, 'icons', `${b.slug}.svg`);
+  if (!fs.existsSync(file)) continue;
+  const svg = fs.readFileSync(file, 'utf8').replace('<svg ', '<svg fill="#ffffff" ');
+  const b64 = await page.evaluate(async ([svg, size]) => {
+    const img = new Image();
+    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    await img.decode();
+    const c = document.getElementById('c');
+    c.width = c.height = size;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, size, size);
+    g.drawImage(img, 0, 0, size, size);
+    return c.toDataURL('image/png').split(',')[1];
+  }, [svg, 80]);
+  brandPngs.push({ name: `${b.slug}.png`, data: Buffer.from(b64, 'base64') });
+}
+const brandIndex = brands.filter(b => brandPngs.some(p => p.name === `${b.slug}.png`))
+  .map(b => ({ s: b.slug, n: b.title, h: b.hex, k: [...(b.aliases?.aka ?? []), ...(b.aliases?.dup ?? []).map(d => d.title)] }));
+brandPngs.push({ name: 'brands.json', data: Buffer.from(JSON.stringify(brandIndex)) });
+fs.writeFileSync(path.join(out, 'brands.zip'), zip(brandPngs));
+await browser.close();
+console.log(`${icons.length} icons, ${entries.length} emoji, ${brandIndex.length} brands (${brandData.length - brands.length} left out for their own licenses)`);
 
 // Minimal zip writer (stored PNGs, deflated JSON), so no extra package is needed.
 function zip(files) {

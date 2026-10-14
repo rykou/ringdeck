@@ -12,6 +12,10 @@ public static class Screens
     const uint SWP_NOACTIVATE = 0x10, SWP_NOSIZE = 0x01, SWP_SHOWWINDOW = 0x40;
     static readonly IntPtr Topmost = new(-1);
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+
+    public static void MoveCursor(int x, int y) => SetCursorPos(x, y);
+
     public static (int X, int Y) Cursor() => GetCursorPos(out var p) ? (p.X, p.Y) : (0, 0);
 
     public static ScreenInfo At(int x, int y)

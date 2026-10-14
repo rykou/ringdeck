@@ -66,7 +66,8 @@ public partial class App : Application
             Config = Store.Load().Config;
             Icons = new IconStore(Store.IconsDir);
             Theme.Apply(Config.Settings);
-            RenderProbe.Render(Config, e.Args[render + 1], render + 2 < e.Args.Length && int.TryParse(e.Args[render + 2], out var slice) ? slice : -1);
+            RenderProbe.Render(Config, e.Args[render + 1], render + 2 < e.Args.Length && int.TryParse(e.Args[render + 2], out var slice) ? slice : -1,
+                render + 3 < e.Args.Length && Enum.TryParse<RingStyle>(e.Args[render + 3], true, out var style) ? style : null);
             Shutdown();
             return;
         }
@@ -99,6 +100,12 @@ public partial class App : Application
         Config = loaded.Config;
         Icons = new IconStore(Store.IconsDir);
         Theme.Apply(Config.Settings);
+        try
+        {
+            var version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "0";
+            Store.BackupOnVersionChange(version, DateTime.Now, Config.Settings.BackupOnUpdate);
+        }
+        catch (Exception ex) { Log(ex); }
         try { Autostart.MigrateFromRunKey(); }
         catch (Exception ex) { Log(ex); }
         Tray = new TrayIcon(ShowEditor, SetPaused, ExitApp);

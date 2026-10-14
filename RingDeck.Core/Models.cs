@@ -4,6 +4,12 @@ namespace RingDeck.Core;
 
 public enum OpenMode { Hold, Click }
 
+/// <summary>Where a ring appears: at the mouse pointer, or in the middle of the screen (the pointer moves there).</summary>
+public enum OpenAt { Pointer, Center }
+
+/// <summary>How rings are drawn.</summary>
+public enum RingStyle { Classic, Soft, Clean, Neon, Labels }
+
 public sealed class AppConfig
 {
     public int Version { get; set; } = 1;
@@ -19,10 +25,16 @@ public sealed class GlobalSettings
 {
     public string Theme { get; set; } = "system";     // system | dark | light
     public string Accent { get; set; } = "#4CC2FF";
+    public RingStyle RingStyle { get; set; } = RingStyle.Classic;
     public double Scale { get; set; } = 1.0;          // 0.5 .. 2.0
     public bool Animations { get; set; } = true;
     public bool SpiralClose { get; set; } = true;
     public bool InstantPointer { get; set; }
+    /// <summary>A soft sound when a ring opens and when a slice is chosen. Off unless the user turns it on.</summary>
+    public bool Sounds { get; set; }
+    public double SoundVolume { get; set; } = 0.5;
+    /// <summary>Copy config.json into backups\ whenever RingDeck starts as a new version.</summary>
+    public bool BackupOnUpdate { get; set; } = true;
     /// <summary>Ring shortcuts are ignored while a fullscreen app (typically a game) has focus.</summary>
     public bool DisableInFullscreen { get; set; } = true;
     /// <summary>Programs (exe names) in which ring shortcuts are always ignored.</summary>
@@ -35,11 +47,17 @@ public sealed class Ring
     public string Name { get; set; } = "New ring";
     public string Shortcut { get; set; } = "";
     public OpenMode Mode { get; set; } = OpenMode.Hold;
+    public OpenAt OpenAt { get; set; } = OpenAt.Pointer;
     public double Radius { get; set; } = 120;
     public string Color { get; set; } = "#1E1E24";
     public string Accent { get; set; } = "";          // empty = global accent
+    /// <summary>Empty: the style chosen in Settings.</summary>
+    public RingStyle? Style { get; set; }
+    public RingStyle StyleIn(GlobalSettings settings) => Style ?? settings.RingStyle;
     public bool ShowLabels { get; set; } = true;
     public bool Enabled { get; set; } = true;
+    /// <summary>Programs (exe names) this ring is for. Empty: everywhere.</summary>
+    public List<string> OnlyIn { get; set; } = new();
     public List<Slice> Slices { get; set; } = new();
 }
 
@@ -87,11 +105,23 @@ public sealed class NestedRingAction : SliceAction
 [JsonDerivedType(typeof(KeyStep), "key")]
 [JsonDerivedType(typeof(TextStep), "text")]
 [JsonDerivedType(typeof(DelayStep), "delay")]
+[JsonDerivedType(typeof(PasteStep), "paste")]
+[JsonDerivedType(typeof(LaunchStep), "open")]
+[JsonDerivedType(typeof(FocusStep), "focus")]
+[JsonDerivedType(typeof(ClipboardStep), "clipboard")]
 public abstract class MacroStep { }
 
 public sealed class KeyStep : MacroStep { public string Combo { get; set; } = ""; }
 public sealed class TextStep : MacroStep { public string Text { get; set; } = ""; }
 public sealed class DelayStep : MacroStep { public int Ms { get; set; } = 100; }
+/// <summary>Pastes text through the clipboard (placeholders expanded, clipboard restored).</summary>
+public sealed class PasteStep : MacroStep { public string Text { get; set; } = ""; }
+/// <summary>Opens an app, file, folder or link.</summary>
+public sealed class LaunchStep : MacroStep { public string Target { get; set; } = ""; public string Arguments { get; set; } = ""; }
+/// <summary>Brings a window to the front: by program (exe name), by part of its title, or both.</summary>
+public sealed class FocusStep : MacroStep { public string Program { get; set; } = ""; public string Title { get; set; } = ""; }
+/// <summary>Puts text on the clipboard and leaves it there.</summary>
+public sealed class ClipboardStep : MacroStep { public string Text { get; set; } = ""; }
 
 public enum AiFormat { OpenAi, Anthropic, Gemini, Custom }
 

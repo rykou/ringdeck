@@ -36,7 +36,7 @@ public sealed class RingController : IDisposable
         _notifier = notifier;
         _session = new RingSession(id => _config().Find(id));
         _input = new InputSender(_hook.IsPhysicallyDown);
-        _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier);
+        _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier, focuser: new WindowFocuser(_input));
         _actions = StartActionThread();
         _hook.Error = App.Log;
         _overlay.Current.FindRing = _overlay.Outgoing.FindRing = id => _config().Find(id);
@@ -123,7 +123,7 @@ public sealed class RingController : IDisposable
             return true;
         }
         var mods = InputSender.CurrentMods();
-        var result = _matcher.OnKey(vk, down, mods);
+        var result = _matcher.OnKey(vk, down, mods, ChooseRing);
         // Only the decision is made here; the work is posted, in order, so the callback returns at once.
         if (result.Pressed is { } pressed)
         {
@@ -137,6 +137,18 @@ public sealed class RingController : IDisposable
         if (result.Released is { } released)
             Post(() => { if (_session.IsOpen && _session.RootId == released) ChooseAtPointer(true); });
         return result.Swallow;
+    }
+
+    /// <summary>Rings sharing a shortcut: the one made for the program in front, else the "everywhere" one, else none
+    /// (and the key goes to the program). Runs inside the hook, so the program is only looked up when it matters.</summary>
+    Guid? ChooseRing(IReadOnlyList<Guid> ids)
+    {
+        var rings = ids.Select(id => _config().Find(id)).OfType<Ring>().ToList();
+        if (rings.All(r => r.OnlyIn.Count == 0)) return rings.FirstOrDefault()?.Id;
+        string? exe = null;
+        try { exe = ForegroundProbe.Get().Exe; }
+        catch (Exception ex) { App.Log(ex); }
+        return RingPicker.Pick(rings, exe)?.Id;
     }
 
     /// <summary>A click (or, for release, the shortcut key coming up) at the pointer. Choosing can move the session
@@ -159,12 +171,25 @@ public sealed class RingController : IDisposable
         if (_config().Find(id) is not { Enabled: true } ring) return;
         var (px, py) = Screens.Cursor();
         _screen = Screens.At(px, py);
+        if (ring.OpenAt == OpenAt.Center)
+        {
+            // open in the middle of the screen the pointer is on, and put the pointer at the ring's centre so a flick works
+            (px, py) = RingGeometry.Centre(_screen.Left, _screen.Top, _screen.Right, _screen.Bottom);
+            Screens.MoveCursor(px, py);
+        }
         _dpiScale = _screen.DpiScale;
         _unit = _dpiScale * Math.Clamp(_config().Settings.Scale, 0.5, 2.0);
         _session.Open(ring, px / _unit, py / _unit);
         ClampSession();
         _overlay.Outgoing.Ring = null;
         ShowCurrent();
+        Sound("open");
+    }
+
+    void Sound(string name)
+    {
+        var settings = _config().Settings;
+        if (settings.Sounds) SoundEffects.Play(name, settings.SoundVolume);
     }
 
     /// <summary>Keeps the current ring, labels included, on the monitor it opened on. Child rings open at the
@@ -226,8 +251,10 @@ public sealed class RingController : IDisposable
                 return;
             case ChooseKind.EnteredNested:
                 Transition(oldX, oldY);
+                Sound("open");
                 return;
         }
+        if (result.Kind == ChooseKind.Run) Sound("select");
         _overlay.Current.Animator.Close();
         if (result.Kind == ChooseKind.MissingRing)
             _notifier.Notify($"\"{result.Slice?.Label}\" has nothing to open", "The ring it points to was deleted or has no slices.");

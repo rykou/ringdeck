@@ -27,6 +27,31 @@ public sealed class ConfigStore
     public string BackupPath => Path.Combine(Dir, "config.bak.json");
     public string IconsDir => Path.Combine(Dir, "icons");
 
+    public string BackupsDir => Path.Combine(Dir, "backups");
+    string VersionFile => Path.Combine(Dir, "last-version.txt");
+    const int BackupsKept = 10;
+
+    /// <summary>When RingDeck starts as a different version than last time, copies config.json into backups\
+    /// (named after the version it came from) and keeps the newest ten. Returns the backup's path, or null.</summary>
+    public string? BackupOnVersionChange(string version, DateTime now, bool enabled = true)
+    {
+        Directory.CreateDirectory(Dir);
+        var previous = File.Exists(VersionFile) ? File.ReadAllText(VersionFile).Trim() : null;
+        if (previous == version) return null;
+        string? backup = null;
+        if (enabled && previous is { Length: > 0 } && File.Exists(ConfigPath))
+        {
+            Directory.CreateDirectory(BackupsDir);
+            backup = Path.Combine(BackupsDir, $"config-{previous}-{now:yyyyMMdd-HHmmss}.json");
+            File.Copy(ConfigPath, backup, true);
+            File.SetLastWriteTime(backup, now);
+            foreach (var old in new DirectoryInfo(BackupsDir).GetFiles("config-*.json").OrderByDescending(f => f.LastWriteTime).Skip(BackupsKept))
+                old.Delete();
+        }
+        File.WriteAllText(VersionFile, version);
+        return backup;
+    }
+
     public static string ToJson(AppConfig config) => JsonSerializer.Serialize(config, Options);
 
     /// <summary>Parses and normalises a config. Returns null when the text is not a usable config.</summary>
@@ -84,6 +109,8 @@ public sealed class ConfigStore
         if (config.Version < 1) config.Version = 1;
         config.Settings ??= new GlobalSettings();
         config.Settings.Scale = Math.Clamp(config.Settings.Scale, 0.5, 2.0);
+        config.Settings.SoundVolume = Math.Clamp(config.Settings.SoundVolume, 0, 1);
+        if (!Enum.IsDefined(config.Settings.RingStyle)) config.Settings.RingStyle = RingStyle.Classic;
         config.Settings.ExcludedApps = (config.Settings.ExcludedApps ?? new())
             .Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -109,6 +136,9 @@ public sealed class ConfigStore
             ring.Name ??= "";
             ring.Shortcut ??= "";
             ring.Radius = Math.Clamp(ring.Radius, 60, 400);
+            if (ring.Style is { } style && !Enum.IsDefined(style)) ring.Style = null;
+            ring.OnlyIn = (ring.OnlyIn ?? new()).Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             ring.Slices = (ring.Slices ?? new()).Where(s => s is not null).ToList();
             foreach (var slice in ring.Slices)
             {

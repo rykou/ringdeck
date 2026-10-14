@@ -11,14 +11,33 @@ namespace RingDeck.App;
 public static class IconAssets
 {
     static readonly object Gate = new();
-    static ZipArchive? _emojiZip;
-    static List<IconEntry>? _emoji, _icons;
+    static ZipArchive? _emojiZip, _brandZip;
+    static List<IconEntry>? _emoji, _icons, _brands;
     static FontFamily? _font;
     static readonly Dictionary<string, ImageSource?> Pictures = new();
 
     static Stream Resource(string name) => Application.GetResourceStream(new Uri($"pack://application:,,,/Assets/{name}"))!.Stream;
 
     static ZipArchive EmojiZip => _emojiZip ??= new ZipArchive(Resource("emoji.zip"), ZipArchiveMode.Read);
+    static ZipArchive BrandZip => _brandZip ??= new ZipArchive(Resource("brands.zip"), ZipArchiveMode.Read);
+
+    /// <summary>Brand logos (Simple Icons, public domain; the logos are their owners' trademarks).</summary>
+    public static IReadOnlyList<IconEntry> Brands
+    {
+        get
+        {
+            lock (Gate)
+            {
+                if (_brands is not null) return _brands;
+                using var reader = new StreamReader(BrandZip.GetEntry("brands.json")!.Open());
+                return _brands = IconCatalog.ParseBrands(reader.ReadToEnd());
+            }
+        }
+    }
+
+    /// <summary>A brand's own colour.</summary>
+    public static Color? BrandColor(string icon) =>
+        IconCatalog.BrandColor(Brands, icon) is { } hex && ColorMath.TryParseHex(hex, out var c) ? Color.FromRgb(c.R, c.G, c.B) : null;
 
     public static IReadOnlyList<IconEntry> Emoji
     {
@@ -49,14 +68,20 @@ public static class IconAssets
     public static FontFamily IconFont =>
         _font ??= Fonts.GetFontFamilies(new Uri("pack://application:,,,/Assets/")).FirstOrDefault() ?? new FontFamily("Segoe Fluent Icons");
 
-    /// <summary>The picture for an "emoji:" id, or null when it isn't in the pack.</summary>
+    /// <summary>The picture for an "emoji:" or "brand:" id (brands are white shapes, tinted when drawn), or null.</summary>
     public static ImageSource? EmojiPicture(string icon)
     {
         lock (Gate)
         {
             if (Pictures.TryGetValue(icon, out var cached)) return cached;
             ImageSource? picture = null;
-            if (IconCatalog.Split(icon) is ("emoji", var code) && EmojiZip.GetEntry(code + ".png") is { } entry)
+            var entry = IconCatalog.Split(icon) switch
+            {
+                ("emoji", var code) => EmojiZip.GetEntry(code + ".png"),
+                ("brand", var slug) => BrandZip.GetEntry(slug + ".png"),
+                _ => null,
+            };
+            if (entry is not null)
             {
                 using var stream = new MemoryStream();
                 using (var source = entry.Open()) source.CopyTo(stream);

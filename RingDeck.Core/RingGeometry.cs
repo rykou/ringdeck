@@ -15,6 +15,9 @@ public static class RingGeometry
         return (int)Math.Floor((AngleOf(dx, dy) + step / 2) / step) % count;
     }
 
+    /// <summary>The middle of a screen area, in the same pixels.</summary>
+    public static (int X, int Y) Centre(int left, int top, int right, int bottom) => ((left + right) / 2, (top + bottom) / 2);
+
     public static (double X, double Y) PointAt(double angle, double radius)
     {
         var a = angle * Math.PI / 180;

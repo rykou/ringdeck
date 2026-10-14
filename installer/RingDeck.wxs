@@ -4,7 +4,8 @@
            UpgradeCode="5B1E7C3A-0C5E-4E0B-9C0F-7A6D1E2B9F44">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" InstallPrivileges="limited" Platform="x64"
              Description="Radial rings of macros, snippets and shortcuts" />
-    <MajorUpgrade DowngradeErrorMessage="A newer version of RingDeck is already installed." />
+    <!-- AllowSameVersionUpgrades: a rebuild with an unchanged version number still replaces the installed copy. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of RingDeck is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Icon Id="RingDeckIcon.ico" SourceFile="ringdeck.ico" />

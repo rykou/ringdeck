@@ -7,7 +7,7 @@ using RingDeck.Core;
 namespace RingDeck.App;
 
 /// <summary>Draws one ring from its animator state. Used by the overlay and by the editor preview.</summary>
-public sealed class RingVisual : FrameworkElement
+public sealed partial class RingVisual : FrameworkElement
 {
     const double Hub = 38;
     static readonly FontFamily GlyphFont = new("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Emoji, Segoe UI Symbol, Segoe UI");
@@ -23,6 +23,8 @@ public sealed class RingVisual : FrameworkElement
     public double Radius { get; set; } = 120;
     public Vector Offset { get; set; }
     public Func<Guid, Ring?>? FindRing { get; set; }
+    /// <summary>Draw in this style instead of the ring's own (developer pictures).</summary>
+    public RingStyle? StyleOverride { get; set; }
 
     /// <summary>Half the side of the square that fits a ring through its whole open and close motion.</summary>
     public static double ExtentFor(double radius) => (radius * 1.5 + RingSession.SliceSize * 1.5) * 1.2 + 20;
@@ -31,6 +33,8 @@ public sealed class RingVisual : FrameworkElement
     {
         var ring = Ring;
         if (ring is null || Animator.Phase == AnimPhase.Hidden) return;
+        var style = StyleOverride ?? ring.StyleIn(App.Instance.Config?.Settings ?? new GlobalSettings());
+        if (style != RingStyle.Classic) { DrawStyled(dc, ring, style); return; }
         var pose = Animator.Pose;
         var center = new Point(ActualWidth / 2 + Offset.X, ActualHeight / 2 + Offset.Y);
         var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
@@ -109,6 +113,16 @@ public sealed class RingVisual : FrameworkElement
         return geometry;
     }
 
+    /// <summary>True when a brand colour stands out from the slice (judged against the text colour chosen for it).</summary>
+    static bool Distinct(Color brand, Color textOnSlice)
+    {
+        static double L(Color c) => (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255;
+        // textOnSlice is white on dark slices and near-black on light ones; the brand colour must not be close to
+        // the slice itself, i.e. far enough from the opposite end.
+        var dark = L(textOnSlice) > 0.5;
+        return dark ? L(brand) > 0.32 : L(brand) < 0.68;
+    }
+
     static Color Contrast(Color background) =>
         0.299 * background.R + 0.587 * background.G + 0.114 * background.B > 150 ? Color.FromRgb(0x16, 0x16, 0x1A) : Colors.White;
 
@@ -119,6 +133,17 @@ public sealed class RingVisual : FrameworkElement
     /// character, or (when there is no icon) the label's first letter.</summary>
     internal static void DrawIcon(DrawingContext dc, string icon, string label, Point at, double r, Color color, double dpi)
     {
+        if (icon.StartsWith("brand:", StringComparison.Ordinal) && IconAssets.EmojiPicture(icon) is { } logo)
+        {
+            // Brand logos are white shapes: paint them in the brand's colour, unless it would vanish on this slice.
+            var half = r * 0.62;
+            var rect = new Rect(at.X - half, at.Y - half, half * 2, half * 2);
+            var tint = IconAssets.BrandColor(icon) is { } brand && Distinct(brand, color) ? brand : color;
+            dc.PushOpacityMask(new ImageBrush(logo));
+            dc.DrawRectangle(Theme.Frozen(tint), null, rect);
+            dc.Pop();
+            return;
+        }
         var picture = IconCatalog.Split(icon) switch
         {
             ("file", _) => Image(icon),
@@ -162,20 +187,25 @@ public sealed class RingVisual : FrameworkElement
             DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 10), 12, Theme.Frozen(Colors.White), 140, dpi, false, true);
     }
 
-    static void DrawText(DrawingContext dc, string value, Point at, double size, Brush brush, double maxWidth, double dpi, bool middle, bool shadow)
+    static void DrawText(DrawingContext dc, string value, Point at, double size, Brush brush, double maxWidth, double dpi, bool middle, bool shadow) =>
+        DrawText(dc, value, at, size, brush, maxWidth, dpi, middle, shadow ? Color.FromArgb(0xBF, 0, 0, 0) : null);
+
+    static void DrawText(DrawingContext dc, string value, Point at, double size, Brush brush, double maxWidth, double dpi, bool middle, Color? shadow, bool glow = false)
     {
         var text = new FormattedText(value, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, TextFace, size, brush, dpi)
         {
             MaxTextWidth = maxWidth, MaxLineCount = 2, Trimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center,
         };
         var origin = new Point(at.X - maxWidth / 2, middle ? at.Y - text.Height / 2 : at.Y);
-        if (shadow)
+        if (shadow is { } shade)
         {
-            var dark = new FormattedText(value, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, TextFace, size, Theme.Frozen(Colors.Black, 0.75), dpi)
+            var dark = new FormattedText(value, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, TextFace, size, Theme.Frozen(shade), dpi)
             {
                 MaxTextWidth = maxWidth, MaxLineCount = 2, Trimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center,
             };
-            dc.DrawText(dark, new Point(origin.X + 1, origin.Y + 1));
+            // A glow is the shadow drawn all around the text; a shadow sits below and to the right.
+            Vector[] offsets = glow ? [new(-1, 0), new(1, 0), new(0, -1), new(0, 1), new(-1.5, -1.5), new(1.5, 1.5), new(-1.5, 1.5), new(1.5, -1.5)] : [new(1, 1)];
+            foreach (var o in offsets) dc.DrawText(dark, origin + o);
         }
         dc.DrawText(text, origin);
     }

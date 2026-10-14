@@ -3,7 +3,7 @@ namespace RingDeck.Core;
 /// <summary>Runs a slice's action against the focused window. Never throws: failures are reported to the notifier.</summary>
 public sealed class ActionRunner
 {
-    const int ClipboardRetryMs = 50, ClipboardGiveUpMs = 500, RestoreAfterMs = 250, StepGapMs = 10, MaxDelayMs = 60_000;
+    const int ClipboardRetryMs = 50, ClipboardGiveUpMs = 500, RestoreAfterMs = 250, StepGapMs = 10, MaxDelayMs = 60_000, FocusSettleMs = 150;
     static readonly Shortcut PasteCombo = new(Mods.Ctrl, 0x56);
 
     readonly IInputSender _input;
@@ -12,13 +12,15 @@ public sealed class ActionRunner
     readonly INotifier _notifier;
     readonly Func<DateTime> _now;
     readonly Func<int, CancellationToken, Task> _delay;
+    readonly IWindowFocuser? _focuser;
 
     public ActionRunner(IInputSender input, IClipboard clipboard, ILauncher launcher, INotifier notifier,
-        Func<DateTime>? now = null, Func<int, CancellationToken, Task>? delay = null)
+        Func<DateTime>? now = null, Func<int, CancellationToken, Task>? delay = null, IWindowFocuser? focuser = null)
     {
         (_input, _clipboard, _launcher, _notifier) = (input, clipboard, launcher, notifier);
         _now = now ?? (() => DateTime.Now);
         _delay = delay ?? ((ms, ct) => Task.Delay(ms, ct));
+        _focuser = focuser;
     }
 
     public async Task RunAsync(Slice slice, CancellationToken ct)
@@ -55,10 +57,10 @@ public sealed class ActionRunner
     Task Paste(PasteTextAction paste, CancellationToken ct) =>
         PasteRaw(Placeholders.Expand(paste.Text ?? "", _now(), _clipboard.GetText), paste.RestoreClipboard, ct);
 
-    async Task PasteRaw(string text, bool restoreClipboard, CancellationToken ct)
+    async Task PasteRaw(string text, bool restoreClipboard, CancellationToken ct, bool insideMacro = false)
     {
         if (text.Length == 0) return;
-        RequireSendable();
+        if (!insideMacro) RequireSendable();
         var saved = restoreClipboard ? _clipboard.Capture() : null;
         var waited = 0;
         while (!_clipboard.TrySetText(text))
@@ -69,14 +71,14 @@ public sealed class ActionRunner
         }
         try
         {
-            _input.ReleaseModifiers();
+            if (!insideMacro) _input.ReleaseModifiers();     // a macro has already let go of them, once
             _input.SendCombo(PasteCombo);
             if (restoreClipboard) await _delay(RestoreAfterMs, ct);
         }
         finally
         {
             if (restoreClipboard) _clipboard.Restore(saved);
-            _input.RestoreModifiers();
+            if (!insideMacro) _input.RestoreModifiers();
         }
     }
 
@@ -87,26 +89,75 @@ public sealed class ActionRunner
         _input.ReleaseModifiers();
         try
         {
-            foreach (var step in macro.Steps)
+            for (var i = 0; i < macro.Steps.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
-                switch (step)
+                var step = macro.Steps[i];
+                try
                 {
-                    case KeyStep key:
-                        if (!Shortcut.TryParse(key.Combo, out var combo))
-                            throw new InvalidOperationException($"\"{key.Combo}\" is not a key combination RingDeck understands.");
-                        _input.SendCombo(combo);
-                        break;
-                    case TextStep text:
-                        _input.SendText(Placeholders.Expand(text.Text ?? "", _now(), _clipboard.GetText));
-                        break;
-                    case DelayStep wait:
-                        await _delay(Math.Clamp(wait.Ms, 0, MaxDelayMs), ct);
-                        continue;
+                    if (await RunStep(step, ct)) continue;      // a wait needs no gap after it
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    throw new InvalidOperationException($"Step {i + 1} ({StepName(step)}): {ex.Message}", ex);
                 }
                 await _delay(StepGapMs, ct);
             }
         }
         finally { _input.RestoreModifiers(); }
     }
+
+    /// <summary>Runs one macro step. Returns true when no gap should follow (a wait, or a step with nothing to do).</summary>
+    async Task<bool> RunStep(MacroStep step, CancellationToken ct)
+    {
+        string Expand(string? text) => Placeholders.Expand(text ?? "", _now(), _clipboard.GetText);
+        switch (step)
+        {
+            case KeyStep key:
+                if (!Shortcut.TryParse(key.Combo, out var combo))
+                    throw new InvalidOperationException($"\"{key.Combo}\" is not a key combination RingDeck understands.");
+                _input.SendCombo(combo);
+                return false;
+            case TextStep text:
+                _input.SendText(Expand(text.Text));
+                return false;
+            case DelayStep wait:
+                await _delay(Math.Clamp(wait.Ms, 0, MaxDelayMs), ct);
+                return true;
+            case PasteStep paste:
+                var pasted = Expand(paste.Text);
+                if (pasted.Length == 0) return true;
+                await PasteRaw(pasted, restoreClipboard: true, ct, insideMacro: true);
+                return false;
+            case LaunchStep launch:
+                if (string.IsNullOrWhiteSpace(launch.Target)) return true;
+                _launcher.Launch(launch.Target, launch.Arguments, "");
+                return false;
+            case FocusStep focus:
+                if (string.IsNullOrWhiteSpace(focus.Program) && string.IsNullOrWhiteSpace(focus.Title)) return true;
+                if (_focuser is null || !_focuser.Focus(focus.Program.Trim(), focus.Title.Trim()))
+                    throw new InvalidOperationException($"no open window matches {Describe(focus)}.");
+                await _delay(FocusSettleMs, ct);                    // let the window come to the front before typing into it
+                return false;
+            case ClipboardStep clip:
+                var text2 = Expand(clip.Text);
+                for (var waited = 0; !_clipboard.TrySetText(text2); waited += ClipboardRetryMs)
+                {
+                    if (waited >= ClipboardGiveUpMs) throw new InvalidOperationException("the clipboard is in use by another program.");
+                    await _delay(ClipboardRetryMs, ct);
+                }
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    static string Describe(FocusStep f) =>
+        string.Join(" and ", new[] { f.Program.Trim().Length > 0 ? $"program \"{f.Program.Trim()}\"" : "", f.Title.Trim().Length > 0 ? $"title \"{f.Title.Trim()}\"" : "" }.Where(x => x.Length > 0));
+
+    static string StepName(MacroStep step) => step switch
+    {
+        KeyStep => "keys", TextStep => "type text", DelayStep => "wait", PasteStep => "paste",
+        LaunchStep => "open", FocusStep => "focus window", ClipboardStep => "set clipboard", _ => "step",
+    };
 }

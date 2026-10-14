@@ -26,6 +26,13 @@ public interface ILauncher
     void Launch(string target, string arguments, string workingFolder);
 }
 
+public interface IWindowFocuser
+{
+    /// <summary>Brings the first window matching the program (exe name) and/or a part of its title to the front.
+    /// Returns false when no window matches.</summary>
+    bool Focus(string program, string title);
+}
+
 public interface INotifier
 {
     void Notify(string title, string message);

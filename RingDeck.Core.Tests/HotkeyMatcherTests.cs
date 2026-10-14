@@ -82,4 +82,24 @@ public class HotkeyMatcherTests
         m.SetBindings(new[] { (new Shortcut(Mods.None, Q), A), (new Shortcut(Mods.None, Q), B) });
         Assert.Equal(A, m.OnKey(Q, true, Mods.None).Pressed);
     }
+
+    [Fact]
+    public void ChooserPicksAmongRingsSharingAShortcut()
+    {
+        var m = new HotkeyMatcher();
+        m.SetBindings(new[] { (new Shortcut(Mods.None, Q), A), (new Shortcut(Mods.None, Q), B) });
+        IReadOnlyList<Guid>? offered = null;
+        var r = m.OnKey(Q, true, Mods.None, ids => { offered = ids; return B; });
+        Assert.Equal(new[] { A, B }, offered);
+        Assert.Equal(new HotkeyResult(true, B, null), r);
+        Assert.Equal(new HotkeyResult(true, null, B), m.OnKey(Q, false, Mods.None));
+    }
+
+    [Fact]
+    public void WhenTheChooserFindsNothingTheKeyPassesThrough()
+    {
+        var m = Make();
+        Assert.Equal(default, m.OnKey(Q, true, Mods.Ctrl | Mods.Alt, _ => null));
+        Assert.Equal(default, m.OnKey(Q, false, Mods.Ctrl | Mods.Alt));    // its key-up is not swallowed either
+    }
 }

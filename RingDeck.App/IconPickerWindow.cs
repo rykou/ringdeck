@@ -14,6 +14,9 @@ public sealed class IconPickerWindow : Window
     readonly TextBox _search = new() { Margin = new Thickness(0, 0, 0, 10) };
     readonly ToggleButton _emojiTab = new() { Content = "Emoji", IsChecked = true, Padding = new Thickness(16, 6, 16, 6) };
     readonly ToggleButton _iconTab = new() { Content = "Icons", Padding = new Thickness(16, 6, 16, 6), Margin = new Thickness(6, 0, 0, 0) };
+    readonly ToggleButton _brandTab = new() { Content = "Brands", Padding = new Thickness(16, 6, 16, 6), Margin = new Thickness(6, 0, 0, 0) };
+    enum Tab { Emoji, Icons, Brands }
+    Tab _tab = Tab.Emoji;
     readonly WrapPanel _groups = new() { Margin = new Thickness(0, 10, 0, 6) };
     readonly WrapPanel _grid = new();
     readonly TextBlock _count = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -36,12 +39,14 @@ public sealed class IconPickerWindow : Window
         _search.ToolTip = "Search by name, e.g. rocket, mail, heart, folder";
         _search.TextChanged += (_, _) => { _debounce.Stop(); _debounce.Start(); };
         _debounce.Tick += (_, _) => { _debounce.Stop(); Fill(); };
-        _emojiTab.Click += (_, _) => SwitchTo(emoji: true);
-        _iconTab.Click += (_, _) => SwitchTo(emoji: false);
+        _emojiTab.Click += (_, _) => SwitchTo(Tab.Emoji);
+        _iconTab.Click += (_, _) => SwitchTo(Tab.Icons);
+        _brandTab.Click += (_, _) => SwitchTo(Tab.Brands);
 
         var tabs = new StackPanel { Orientation = Orientation.Horizontal };
         tabs.Children.Add(_emojiTab);
         tabs.Children.Add(_iconTab);
+        tabs.Children.Add(_brandTab);
 
         var none = new Button { Content = "No icon (first letter)" };
         none.Click += (_, _) => Pick("");
@@ -62,15 +67,21 @@ public sealed class IconPickerWindow : Window
         root.Children.Add(_scroller);
         Content = root;
 
-        Loaded += (_, _) => { SwitchTo(emoji: true); _search.Focus(); };
+        Loaded += (_, _) => { SwitchTo(Tab.Emoji); _search.Focus(); };
     }
 
-    bool EmojiMode => _emojiTab.IsChecked == true;
+    bool EmojiMode => _tab == Tab.Emoji;
 
-    void SwitchTo(bool emoji)
+    /// <summary>Developer aid for --shot-editor.</summary>
+    internal void ShowBrands() => SwitchTo(Tab.Brands);
+
+    void SwitchTo(Tab tab)
     {
-        _emojiTab.IsChecked = emoji;
-        _iconTab.IsChecked = !emoji;
+        _tab = tab;
+        var emoji = tab == Tab.Emoji;
+        _emojiTab.IsChecked = tab == Tab.Emoji;
+        _iconTab.IsChecked = tab == Tab.Icons;
+        _brandTab.IsChecked = tab == Tab.Brands;
         _group = null;
         _groups.Children.Clear();
         _groups.Visibility = emoji ? Visibility.Visible : Visibility.Collapsed;
@@ -91,21 +102,34 @@ public sealed class IconPickerWindow : Window
 
     void Fill()
     {
-        var source = EmojiMode ? IconAssets.Emoji : IconAssets.Icons;
+        var source = _tab switch { Tab.Emoji => IconAssets.Emoji, Tab.Brands => IconAssets.Brands, _ => IconAssets.Icons };
         var found = IconCatalog.Search(source, _search.Text, EmojiMode ? _group : null, MaxShown + 1);
         _grid.Children.Clear();
         foreach (var entry in found.Take(MaxShown)) _grid.Children.Add(Cell(entry));
         _count.Text = found.Count == 0 ? "Nothing found. Try another word."
             : found.Count > MaxShown ? $"Showing the first {MaxShown}. Type to narrow it down."
-            : $"{found.Count} {(EmojiMode ? "emoji" : "icons")}";
+            : $"{found.Count} {_tab.ToString().ToLowerInvariant()}" + (_tab == Tab.Brands ? " · logos are trademarks of their owners" : "");
         _scroller.ScrollToTop();
     }
 
     Button Cell(IconEntry entry)
     {
-        object content = entry.Id.StartsWith("emoji:", StringComparison.Ordinal)
-            ? new Image { Source = IconAssets.EmojiPicture(entry.Id), Width = 32, Height = 32 }
-            : new TextBlock { Text = IconCatalog.IconText(entry.Id), FontFamily = IconAssets.IconFont, FontSize = 24, HorizontalAlignment = HorizontalAlignment.Center };
+        object content;
+        if (entry.Id.StartsWith("emoji:", StringComparison.Ordinal))
+            content = new Image { Source = IconAssets.EmojiPicture(entry.Id), Width = 32, Height = 32 };
+        else if (entry.Id.StartsWith("brand:", StringComparison.Ordinal))
+        {
+            // white logo shape, painted in the brand colour (or light grey when the brand colour is too dark here)
+            var colour = IconAssets.BrandColor(entry.Id) ?? Colors.White;
+            if (0.2126 * colour.R + 0.7152 * colour.G + 0.0722 * colour.B < 70) colour = Color.FromRgb(0xE6, 0xED, 0xF3);
+            content = new System.Windows.Shapes.Rectangle
+            {
+                Width = 28, Height = 28, Fill = Theme.Frozen(colour),
+                OpacityMask = new ImageBrush(IconAssets.EmojiPicture(entry.Id)),
+            };
+        }
+        else
+            content = new TextBlock { Text = IconCatalog.IconText(entry.Id), FontFamily = IconAssets.IconFont, FontSize = 24, HorizontalAlignment = HorizontalAlignment.Center };
         var button = new Button
         {
             Content = content, Width = 52, Height = 52, Margin = new Thickness(2), Padding = new Thickness(0), MinWidth = 0,

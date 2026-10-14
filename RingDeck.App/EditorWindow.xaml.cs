@@ -29,7 +29,15 @@ public partial class EditorWindow : Window
         picker.Show();
         await Task.Delay(1200);
         Shot((FrameworkElement)picker.Content, prefix + "-picker.png");
+        picker.ShowBrands();
+        await Task.Delay(800);
+        Shot((FrameworkElement)picker.Content, prefix + "-brands.png");
         picker.Close();
+        var apps = new AppPickerWindow { Owner = this, Left = 60, Top = 60, WindowStartupLocation = WindowStartupLocation.Manual };
+        apps.Show();
+        await Task.Delay(2500);
+        Shot((FrameworkElement)apps.Content, prefix + "-apps.png");
+        apps.Close();
         var wheel = new ColorWheel { Width = 220, Height = 220 };
         wheel.Show(System.Windows.Media.Color.FromRgb(0x4C, 0xC2, 0xFF));
         var host = new Border { Child = wheel, Padding = new Thickness(14), Background = Theme.Frozen(System.Windows.Media.Color.FromRgb(0x14, 0x14, 0x1A)) };
@@ -133,6 +141,8 @@ public partial class EditorWindow : Window
         connectionList.ItemsSource = Config.AiConnections;
         runningBox.ItemsSource = new[] { RunningPrompt };
         runningBox.SelectedIndex = 0;
+        onlyInRunning.ItemsSource = new[] { RunningPrompt };
+        onlyInRunning.SelectedIndex = 0;
         autostartBox.IsChecked = Autostart.IsEnabled();
         RefreshRings(Config.Rings.FirstOrDefault());
     }
@@ -201,6 +211,7 @@ public partial class EditorWindow : Window
         _slice = slice;
         ringPanel.DataContext = null;
         ringPanel.DataContext = _ring;
+        onlyInBox.Text = _ring is null ? "" : string.Join(Environment.NewLine, _ring.OnlyIn);
         ringPanel.Visibility = _ring is not null && slice is null ? Visibility.Visible : Visibility.Collapsed;
         slicePanel.Visibility = slice is not null ? Visibility.Visible : Visibility.Collapsed;
         settingsPanel.Visibility = Visibility.Collapsed;
@@ -223,6 +234,12 @@ public partial class EditorWindow : Window
         autostartBox.IsChecked = Autostart.IsEnabled();
         MessageBox.Show(this, "Windows has RingDeck's start-up switched off. Turn it on in Settings > Apps > Startup.", "RingDeck",
             MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    void OnOpenBackups(object sender, RoutedEventArgs e)
+    {
+        Directory.CreateDirectory(_app.Store.BackupsDir);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_app.Store.BackupsDir) { UseShellExecute = true })?.Dispose();
     }
 
     // ----- AI connections -----
@@ -256,15 +273,26 @@ public partial class EditorWindow : Window
 
     const string RunningPrompt = "Add a program that is open now…";
 
+    static List<string> ParsePrograms(string text) =>
+        text.Split(new[] { '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
     void OnExcludedChanged(object sender, TextChangedEventArgs e)
     {
         if (!IsLoaded) return;
-        Config.Settings.ExcludedApps = excludedBox.Text.Split(new[] { '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        Config.Settings.ExcludedApps = ParsePrograms(excludedBox.Text);
     }
 
+    void OnOnlyInChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_loading || !IsLoaded || _ring is null) return;
+        _ring.OnlyIn = ParsePrograms(onlyInBox.Text);
+    }
+
+    /// <summary>Fills a "program that is open now" drop-down (Game mode list or a ring's program list).</summary>
     void OnRunningOpened(object sender, EventArgs e)
     {
+        if (sender is not ComboBox box) return;
         var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var process in System.Diagnostics.Process.GetProcesses())
         {
@@ -276,18 +304,20 @@ public partial class EditorWindow : Window
             finally { process.Dispose(); }
         }
         _loading = true;
-        runningBox.ItemsSource = new[] { RunningPrompt }.Concat(names).ToList();
-        runningBox.SelectedIndex = 0;
+        box.ItemsSource = new[] { RunningPrompt }.Concat(names).ToList();
+        box.SelectedIndex = 0;
         _loading = false;
     }
 
+    /// <summary>Adds the picked program to the list box that belongs to this drop-down.</summary>
     void OnRunningPicked(object sender, SelectionChangedEventArgs e)
     {
-        if (_loading || !IsLoaded || runningBox.SelectedIndex <= 0 || runningBox.SelectedItem is not string name) return;
-        if (!Config.Settings.ExcludedApps.Contains(name, StringComparer.OrdinalIgnoreCase))
-            excludedBox.Text = (excludedBox.Text.TrimEnd() + Environment.NewLine + name).Trim();
+        if (_loading || !IsLoaded || sender is not ComboBox box || box.SelectedIndex <= 0 || box.SelectedItem is not string name) return;
+        var list = ReferenceEquals(box, onlyInRunning) ? onlyInBox : excludedBox;
+        if (!ParsePrograms(list.Text).Contains(name, StringComparer.OrdinalIgnoreCase))
+            list.Text = (list.Text.TrimEnd() + Environment.NewLine + name).Trim();
         _loading = true;
-        runningBox.SelectedIndex = 0;
+        box.SelectedIndex = 0;
         _loading = false;
     }
 
@@ -505,8 +535,10 @@ public partial class EditorWindow : Window
         var message = "";
         if (_ring is not null && _ring.Shortcut != "")
         {
-            var clash = Config.Rings.FirstOrDefault(r => r != _ring && r.Enabled && string.Equals(r.Shortcut, _ring.Shortcut, StringComparison.OrdinalIgnoreCase));
-            if (clash is not null) message = $"\"{clash.Name}\" already uses this shortcut. Only the first ring in the list will open.";
+            if (RingPicker.Clash(Config, _ring) is { } clash)
+                message = _ring.OnlyIn.Count == 0
+                    ? $"\"{clash.Name}\" already uses this shortcut everywhere. Only the first of them in the list opens; give one of them programs to tell them apart."
+                    : $"\"{clash.Name}\" uses this shortcut in the same program. Only the first of them in the list opens there.";
         }
         shortcutWarning.Text = message;
         shortcutWarning.Visibility = message == "" ? Visibility.Collapsed : Visibility.Visible;

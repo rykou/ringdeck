@@ -5,6 +5,10 @@
         xmlns:local="clr-namespace:RingDeck.App"
         Title="RingDeck" Width="1180" Height="740" MinWidth="980" MinHeight="600"
         WindowStartupLocation="CenterScreen">
+  <Window.Resources>
+    <local:RingSubtitle x:Key="RingSubtitle" />
+    <local:InheritConverter x:Key="Inherit" />
+  </Window.Resources>
   <Grid Margin="16">
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="250" />
@@ -36,7 +40,7 @@
               <CheckBox DockPanel.Dock="Left" IsChecked="{Binding Enabled}" Click="OnEdited" ToolTip="Shortcut active" MinWidth="0" Margin="0,0,6,0" />
               <StackPanel>
                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                <TextBlock Text="{Binding Shortcut}" FontSize="11" Foreground="{DynamicResource SubtleBrush}" />
+                <TextBlock Text="{Binding Converter={StaticResource RingSubtitle}}" FontSize="11" Foreground="{DynamicResource SubtleBrush}" TextTrimming="CharacterEllipsis" />
               </StackPanel>
             </DockPanel>
           </DataTemplate>
@@ -77,12 +81,33 @@
             <ComboBoxItem Content="Held: release to choose" Tag="{x:Static core:OpenMode.Hold}" />
             <ComboBoxItem Content="Pressed: click to choose" Tag="{x:Static core:OpenMode.Click}" />
           </ComboBox>
+          <TextBlock Style="{StaticResource Caption}" Text="Opens at" />
+          <ComboBox SelectedValue="{Binding OpenAt}" SelectedValuePath="Tag">
+            <ComboBoxItem Content="The mouse pointer" Tag="{x:Static core:OpenAt.Pointer}" />
+            <ComboBoxItem Content="The middle of the screen (the pointer moves there)" Tag="{x:Static core:OpenAt.Center}" />
+          </ComboBox>
+          <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap"
+                     Text="Only in these programs (one per line; leave empty for everywhere)" />
+          <TextBox x:Name="onlyInBox" AcceptsReturn="True" MinHeight="56" MaxHeight="140" VerticalScrollBarVisibility="Auto"
+                   TextChanged="OnOnlyInChanged" ToolTip="For example chrome.exe or EXCEL.EXE" />
+          <ComboBox x:Name="onlyInRunning" Margin="0,6,0,0" DropDownOpened="OnRunningOpened" SelectionChanged="OnRunningPicked" />
+          <TextBlock Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                     Text="Several rings can share a shortcut: the one made for the program in front opens. Where no ring applies, the shortcut goes to the program as usual." />
           <TextBlock Style="{StaticResource Caption}" Text="Size" />
           <Slider Minimum="60" Maximum="400" Value="{Binding Radius}" />
           <TextBlock Style="{StaticResource Caption}" Text="Centre colour" />
           <local:ColorField Value="{Binding Color}" />
           <TextBlock Style="{StaticResource Caption}" Text="Highlight colour (empty uses the global one)" />
           <local:ColorField Value="{Binding Accent}" />
+          <TextBlock Style="{StaticResource Caption}" Text="Style" />
+          <ComboBox SelectedValue="{Binding Style, Converter={StaticResource Inherit}}" SelectedValuePath="Tag">
+            <ComboBoxItem Content="Same as Settings" Tag="inherit" />
+            <ComboBoxItem Content="Classic" Tag="{x:Static core:RingStyle.Classic}" />
+            <ComboBoxItem Content="Soft: round buttons with shadows" Tag="{x:Static core:RingStyle.Soft}" />
+            <ComboBoxItem Content="Clean: floating icons" Tag="{x:Static core:RingStyle.Clean}" />
+            <ComboBoxItem Content="Neon: glowing icons" Tag="{x:Static core:RingStyle.Neon}" />
+            <ComboBoxItem Content="Labels: names in coloured pills" Tag="{x:Static core:RingStyle.Labels}" />
+          </ComboBox>
           <CheckBox Content="Show slice labels" IsChecked="{Binding ShowLabels}" Margin="0,14,0,0" />
         </StackPanel>
 
@@ -98,12 +123,28 @@
           </ComboBox>
           <TextBlock Style="{StaticResource Caption}" Text="Highlight colour" />
           <local:ColorField Value="{Binding Accent}" />
+          <TextBlock Style="{StaticResource Caption}" Text="Ring style (each ring can pick its own)" />
+          <ComboBox SelectedValue="{Binding RingStyle}" SelectedValuePath="Tag">
+            <ComboBoxItem Content="Classic" Tag="{x:Static core:RingStyle.Classic}" />
+            <ComboBoxItem Content="Soft: round buttons with shadows" Tag="{x:Static core:RingStyle.Soft}" />
+            <ComboBoxItem Content="Clean: floating icons" Tag="{x:Static core:RingStyle.Clean}" />
+            <ComboBoxItem Content="Neon: glowing icons" Tag="{x:Static core:RingStyle.Neon}" />
+            <ComboBoxItem Content="Labels: names in coloured pills" Tag="{x:Static core:RingStyle.Labels}" />
+          </ComboBox>
           <TextBlock Style="{StaticResource Caption}" Text="Ring scale" />
           <Slider Minimum="0.5" Maximum="2" TickFrequency="0.1" IsSnapToTickEnabled="True" Value="{Binding Scale}" />
           <CheckBox Content="Animate rings" IsChecked="{Binding Animations}" Margin="0,14,0,0" />
           <CheckBox Content="Spiral outward on close" IsChecked="{Binding SpiralClose}" />
           <CheckBox Content="Pointer snaps instantly" IsChecked="{Binding InstantPointer}" />
           <CheckBox x:Name="autostartBox" Content="Start RingDeck with Windows" Click="OnAutostart" Margin="0,14,0,0" />
+          <CheckBox Content="Play a click when a ring opens and a slice is chosen" IsChecked="{Binding Sounds}" Margin="0,8,0,0" />
+          <DockPanel Margin="28,2,0,0" IsEnabled="{Binding Sounds}">
+            <TextBlock Text="Volume" Width="60" VerticalAlignment="Center" Foreground="{DynamicResource SubtleBrush}" />
+            <Slider Minimum="0" Maximum="1" Value="{Binding SoundVolume}" />
+          </DockPanel>
+          <CheckBox Content="Back up my settings when RingDeck updates" IsChecked="{Binding BackupOnUpdate}" Margin="0,8,0,0"
+                    ToolTip="Keeps the last 10 copies in the backups folder next to your settings" />
+          <Button Content="Open the backups folder" HorizontalAlignment="Left" Margin="28,4,0,0" Click="OnOpenBackups" />
 
           <TextBlock Style="{StaticResource Heading}" Text="AI connections" Margin="0,26,0,4" />
           <TextBlock Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,0,0,6"

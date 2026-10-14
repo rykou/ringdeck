@@ -13,9 +13,30 @@ public sealed class IconStore
     public IconStore(string dir) => _dir = dir;
 
     /// <summary>Copies an image, or extracts the icon of a program, shortcut or .ico, into the store.</summary>
+    /// <summary>Where a .lnk shortcut points (its program), or the path itself when it isn't a resolvable shortcut.
+    /// Icons are read from the target so they don't carry the shortcut arrow.</summary>
+    public static string ResolveShortcut(string path)
+    {
+        if (!path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)) return path;
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType is null) return path;
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            try
+            {
+                string target = shell.CreateShortcut(path).TargetPath;
+                return !string.IsNullOrEmpty(target) && File.Exists(target) ? target : path;
+            }
+            finally { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); }
+        }
+        catch (Exception) { return path; }
+    }
+
     /// <summary>The picture a file would give: an image file's own bytes, or a program's / shortcut's icon as PNG.</summary>
     public static byte[] PictureBytes(string sourcePath)
     {
+        sourcePath = ResolveShortcut(sourcePath);
         if (ImageTypes.Contains(Path.GetExtension(sourcePath).ToLowerInvariant()) || sourcePath.EndsWith(".ico", StringComparison.OrdinalIgnoreCase))
             return File.ReadAllBytes(sourcePath);
         using var bitmap = ExtractLarge(sourcePath) ?? Icon.ExtractAssociatedIcon(sourcePath)?.ToBitmap()

@@ -21,6 +21,8 @@ Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut
 | Right click or Backspace | Back one ring |
 | Esc while a macro is playing | Stops the macro |
 
+Rings come in five styles (Settings → Ring style, or per ring): Classic, plus Soft, Clean, Neon and Labels.
+
 Placeholders in pasted and typed text: `{date}`, `{time}`, `{datetime}`, `{clipboard}`, with optional formats such as
 `{date:yyyy-MM-dd}`. Type `{{` for a literal brace.
 
@@ -79,6 +81,7 @@ RingDeck is free. If it saves you time, you can [buy me a coffee ☕](https://pa
 ## License
 
 [MIT](LICENSE). Slice emoji come from Microsoft's [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) and icons
-from [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons), both MIT; see
+from [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons), both MIT; brand logos come from
+[Simple Icons](https://github.com/simple-icons/simple-icons) (CC0) and are trademarks of their owners; see
 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). To rebuild those assets, run `tools/make_icon_assets.mjs`.
 

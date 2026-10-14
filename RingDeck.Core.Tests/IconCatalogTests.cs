@@ -64,6 +64,35 @@ public class IconCatalogTests
     [Fact]
     public void IconCodePointBecomesText() => Assert.Equal("", IconCatalog.IconText("icon:f230"));
 
+    const string BrandsJson = """
+        [{"s":"googlechrome","n":"Google Chrome","h":"4285F4","k":["Chrome"]},
+         {"s":"spotify","n":"Spotify","h":"1ED760","k":[]},
+         {"s":"steam","n":"Steam","h":"000000","k":[]}]
+        """;
+
+    [Fact]
+    public void ParsesBrandsWithColourAndAliases()
+    {
+        var brands = IconCatalog.ParseBrands(BrandsJson);
+        Assert.Equal(3, brands.Count);
+        Assert.Equal("brand:googlechrome", brands[0].Id);
+        Assert.Equal("Google Chrome", brands[0].Name);
+        Assert.Equal("Brands", brands[0].Group);
+        Assert.Contains("chrome", brands[0].Keywords);
+        Assert.Contains("googlechrome", brands[0].Keywords);
+        Assert.Equal("#4285F4", IconCatalog.BrandColor(brands, "brand:googlechrome"));
+        Assert.Null(IconCatalog.BrandColor(brands, "brand:nope"));
+        Assert.Equal(("brand", "spotify"), IconCatalog.Split("brand:spotify"));
+    }
+
+    [Fact]
+    public void BrandSearchFindsAliasesAndSlugs()
+    {
+        var brands = IconCatalog.ParseBrands(BrandsJson);
+        Assert.Equal("brand:googlechrome", IconCatalog.Search(brands, "chrome", null, 5).Single().Id);
+        Assert.Equal("brand:spotify", IconCatalog.Search(brands, "spot", null, 5).Single().Id);
+    }
+
     sealed class EntryComparer : IEqualityComparer<IconEntry>
     {
         public bool Equals(IconEntry? a, IconEntry? b) => a!.Id == b!.Id && a.Name == b.Name && a.Group == b.Group && a.Keywords.SequenceEqual(b.Keywords);

@@ -9,12 +9,12 @@ namespace RingDeck.App;
 /// renderer can be checked without touching the keyboard hooks.</summary>
 static class RenderProbe
 {
-    public static void Render(AppConfig config, string path, int selected)
+    public static void Render(AppConfig config, string path, int selected, RingStyle? style = null)
     {
         if (config.Rings.FirstOrDefault() is not { } ring) return;
         var radius = RingGeometry.EffectiveRadius(ring.Radius, ring.Slices.Count, RingSession.SliceSize);
         var side = RingVisual.ExtentFor(radius) * 2;
-        var visual = new RingVisual { Ring = ring, Radius = radius, Selected = selected, FindRing = config.Find, Width = side, Height = side };
+        var visual = new RingVisual { Ring = ring, Radius = radius, Selected = selected, FindRing = config.Find, StyleOverride = style, Width = side, Height = side };
         visual.Animator.ShowStatic(ring.Slices.Count);
         if (selected >= 0)
             for (var i = 0; i < 30; i++)

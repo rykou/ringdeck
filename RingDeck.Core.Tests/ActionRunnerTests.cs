@@ -2,8 +2,10 @@ namespace RingDeck.Core.Tests;
 
 public class ActionRunnerTests
 {
-    sealed class Fakes : IInputSender, IClipboard, ILauncher, INotifier
+    sealed class Fakes : IInputSender, IClipboard, ILauncher, INotifier, IWindowFocuser
     {
+        public bool FocusWorks = true;
+        public bool Focus(string program, string title) { Log.Add($"focus {program}|{title}"); return FocusWorks; }
         public List<string> Log = new();
         public List<string> Notes = new();
         public List<int> Delays = new();
@@ -32,7 +34,7 @@ public class ActionRunnerTests
     static (ActionRunner, Fakes) Make()
     {
         var f = new Fakes();
-        return (new ActionRunner(f, f, f, f, () => new DateTime(2026, 10, 13), f.Delay), f);
+        return (new ActionRunner(f, f, f, f, () => new DateTime(2026, 10, 13), f.Delay, f), f);
     }
 
     static Slice S(SliceAction a) => new() { Label = "My slice", Action = a };
@@ -179,5 +181,79 @@ public class ActionRunnerTests
         await r.RunAsync(S(new NestedRingAction()), default);
         Assert.Empty(f.Log);
         Assert.Empty(f.Notes);
+    }
+
+    [Fact]
+    public async Task WorkflowRunsEveryKindOfStepInOrder()
+    {
+        var (r, f) = Make();
+        await r.RunAsync(S(new MacroAction { Steps =
+        {
+            new FocusStep { Program = "outlook.exe", Title = "Inbox" },
+            new KeyStep { Combo = "Ctrl+N" },
+            new DelayStep { Ms = 300 },
+            new PasteStep { Text = "Report for {date:yyyy-MM-dd}" },
+            new KeyStep { Combo = "Tab" },
+            new TextStep { Text = "typed" },
+            new LaunchStep { Target = "notepad.exe", Arguments = "a.txt" },
+            new ClipboardStep { Text = "kept {date:yyyy}" },
+        } }), default);
+        Assert.Equal(new[]
+        {
+            "release", "focus outlook.exe|Inbox", "combo Ctrl+N", "set Report for 2026-10-13", "combo Ctrl+V", "restore",
+            "combo Tab", "text typed", "launch notepad.exe|a.txt|", "set kept 2026", "restore-mods",
+        }, f.Log);
+        Assert.Equal("kept 2026", f.Clip);                 // a clipboard step leaves its text on the clipboard
+        Assert.Contains(300, f.Delays);
+        Assert.Empty(f.Notes);
+    }
+
+    [Fact]
+    public async Task MissingWindowStopsTheWorkflowAndNamesTheStep()
+    {
+        var (r, f) = Make();
+        f.FocusWorks = false;
+        await r.RunAsync(S(new MacroAction { Steps = { new KeyStep { Combo = "Ctrl+A" }, new FocusStep { Program = "excel" }, new TextStep { Text = "never" } } }), default);
+        Assert.DoesNotContain("text never", f.Log);
+        var note = Assert.Single(f.Notes);
+        Assert.Contains("Step 2", note);
+        Assert.Contains("excel", note);
+        Assert.Equal("restore-mods", f.Log[^1]);
+    }
+
+    [Fact]
+    public async Task PasteStepDoesNotReleaseModifiersAgain()
+    {
+        var (r, f) = Make();
+        await r.RunAsync(S(new MacroAction { Steps = { new PasteStep { Text = "a" }, new PasteStep { Text = "b" } } }), default);
+        Assert.Equal(1, f.Log.Count(l => l == "release"));
+        Assert.Equal(1, f.Log.Count(l => l == "restore-mods"));
+        Assert.Equal("old", f.Clip);
+    }
+
+    [Fact]
+    public async Task EmptyStepsAreSkippedQuietly()
+    {
+        var (r, f) = Make();
+        await r.RunAsync(S(new MacroAction { Steps = { new PasteStep { Text = "" }, new FocusStep(), new LaunchStep(), new KeyStep { Combo = "Enter" } } }), default);
+        Assert.Contains("combo Enter", f.Log);
+        Assert.DoesNotContain(f.Log, l => l.StartsWith("focus") || l.StartsWith("launch"));
+        Assert.Empty(f.Notes);
+    }
+
+    [Fact]
+    public void NewStepsRoundTrip()
+    {
+        var config = new AppConfig { Rings = { new Ring { Slices = { new Slice { Action = new MacroAction { Steps =
+        {
+            new PasteStep { Text = "p" }, new LaunchStep { Target = "t", Arguments = "a" }, new FocusStep { Program = "x", Title = "y" }, new ClipboardStep { Text = "c" },
+        } } } } } } };
+        var json = ConfigStore.ToJson(config);
+        var steps = ((MacroAction)ConfigStore.FromJson(json)!.Rings[0].Slices[0].Action!).Steps;
+        Assert.IsType<PasteStep>(steps[0]);
+        Assert.Equal("a", Assert.IsType<LaunchStep>(steps[1]).Arguments);
+        Assert.Equal("y", Assert.IsType<FocusStep>(steps[2]).Title);
+        Assert.Equal("c", Assert.IsType<ClipboardStep>(steps[3]).Text);
+        foreach (var type in new[] { "\"paste\"", "\"open\"", "\"focus\"", "\"clipboard\"" }) Assert.Contains(type, json);
     }
 }
