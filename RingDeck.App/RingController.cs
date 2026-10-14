@@ -25,7 +25,8 @@ public sealed class RingController : IDisposable
     ScreenInfo _screen;
     double _unit = 1, _dpiScale = 1;
     TimeSpan _lastFrame;
-    bool _ticking, _disposed;
+    bool _ticking, _disposed, _userPaused, _suppressed;
+    readonly DispatcherTimer _foregroundTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
 
     public RingController(Func<AppConfig> config, INotifier notifier)
     {
@@ -41,6 +42,8 @@ public sealed class RingController : IDisposable
         _overlay.Park();
         _hook.Key = OnKey;
         _hook.Install();
+        _foregroundTimer.Tick += (_, _) => CheckForeground();
+        _foregroundTimer.Start();
         Reload();
     }
 
@@ -70,7 +73,18 @@ public sealed class RingController : IDisposable
     }
 
     public Func<int, bool, bool>? Capture { get; set; }
-    public bool Paused { get => _matcher.Paused; set => _matcher.Paused = value; }
+    /// <summary>The user's own pause switch (tray menu).</summary>
+    public bool Paused { get => _userPaused; set { _userPaused = value; _matcher.Paused = _userPaused || _suppressed; } }
+
+    /// <summary>Runs a few times a second: rings stay off while a fullscreen app or a listed program has focus,
+    /// so the shortcut keys reach the game untouched.</summary>
+    void CheckForeground()
+    {
+        if (_session.IsOpen) return;                    // never flip while a ring is on screen
+        try { _suppressed = Suppression.Applies(_config().Settings, ForegroundProbe.Get()); }
+        catch (Exception ex) { _suppressed = false; App.Log(ex); }
+        _matcher.Paused = _userPaused || _suppressed;
+    }
 
     public void Reload()
     {
@@ -282,6 +296,7 @@ public sealed class RingController : IDisposable
         if (_disposed) return;
         _disposed = true;
         _hook.Dispose();
+        _foregroundTimer.Stop();
         CancelRunning();
         _actions.BeginInvokeShutdown(DispatcherPriority.Normal);
         if (_ticking) CompositionTarget.Rendering -= OnFrame;

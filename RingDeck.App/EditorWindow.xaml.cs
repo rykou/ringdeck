@@ -67,6 +67,9 @@ public partial class EditorWindow : Window
         _saveTimer.Tick += (_, _) => Flush();
         Closing += (_, _) => { StopRecording(); _app.Controller.Capture = null; Flush(); };
         settingsPanel.DataContext = Config.Settings;
+        excludedBox.Text = string.Join(Environment.NewLine, Config.Settings.ExcludedApps);
+        runningBox.ItemsSource = new[] { RunningPrompt };
+        runningBox.SelectedIndex = 0;
         autostartBox.IsChecked = Autostart.IsEnabled();
         RefreshRings(Config.Rings.FirstOrDefault());
     }
@@ -151,6 +154,45 @@ public partial class EditorWindow : Window
     }
 
     void OnAutostart(object sender, RoutedEventArgs e) => Autostart.Set(autostartBox.IsChecked == true);
+
+    // ----- programs where rings are off -----
+
+    const string RunningPrompt = "Add a program that is open now…";
+
+    void OnExcludedChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        Config.Settings.ExcludedApps = excludedBox.Text.Split(new[] { '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    void OnRunningOpened(object sender, EventArgs e)
+    {
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var process in System.Diagnostics.Process.GetProcesses())
+        {
+            try
+            {
+                if (process.MainWindowHandle != IntPtr.Zero && process.Id != Environment.ProcessId) names.Add(process.ProcessName + ".exe");
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            finally { process.Dispose(); }
+        }
+        _loading = true;
+        runningBox.ItemsSource = new[] { RunningPrompt }.Concat(names).ToList();
+        runningBox.SelectedIndex = 0;
+        _loading = false;
+    }
+
+    void OnRunningPicked(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || !IsLoaded || runningBox.SelectedIndex <= 0 || runningBox.SelectedItem is not string name) return;
+        if (!Config.Settings.ExcludedApps.Contains(name, StringComparer.OrdinalIgnoreCase))
+            excludedBox.Text = (excludedBox.Text.TrimEnd() + Environment.NewLine + name).Trim();
+        _loading = true;
+        runningBox.SelectedIndex = 0;
+        _loading = false;
+    }
 
     // ----- preview -----
 

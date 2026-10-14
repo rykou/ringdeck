@@ -84,6 +84,9 @@ public sealed class ConfigStore
         if (config.Version < 1) config.Version = 1;
         config.Settings ??= new GlobalSettings();
         config.Settings.Scale = Math.Clamp(config.Settings.Scale, 0.5, 2.0);
+        config.Settings.ExcludedApps = (config.Settings.ExcludedApps ?? new())
+            .Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         config.Rings = (config.Rings ?? new()).Where(r => r is not null).ToList();
         var seen = new HashSet<Guid>();
         foreach (var ring in config.Rings)

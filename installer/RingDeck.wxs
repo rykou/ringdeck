@@ -65,8 +65,9 @@
     <CustomAction Id="LaunchApp" BinaryKey="WixCA" DllEntry="WixShellExec" Impersonate="yes" />
     <CustomAction Id="SetAutostart" FileKey="RingDeckExe" ExeCommand="--set-autostart on" Return="ignore"
                   Impersonate="yes" Execute="immediate" />
+    <!-- Removes both the scheduled task (0.1.4+) and the Run entry older versions used. -->
     <CustomAction Id="ClearAutostart" Directory="TARGETDIR" Return="ignore" Impersonate="yes" Execute="immediate"
-                  ExeCommand="&quot;[SystemFolder]reg.exe&quot; delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v RingDeck /f" />
+                  ExeCommand="&quot;[SystemFolder]cmd.exe&quot; /c &quot;&quot;[SystemFolder]schtasks.exe&quot; /Delete /TN &quot;RingDeck - [LogonUser]&quot; /F &amp; &quot;[SystemFolder]reg.exe&quot; delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v RingDeck /f&quot;" />
     <InstallExecuteSequence>
       <Custom Action="SetAutostart" After="InstallFinalize">OPT_AUTOSTART = "1" AND NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
       <Custom Action="ClearAutostart" After="InstallFinalize">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>

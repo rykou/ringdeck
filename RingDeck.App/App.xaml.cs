@@ -31,6 +31,28 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        var probe = Array.IndexOf(e.Args, "--foreground");
+        if (probe >= 0 && probe + 1 < e.Args.Length)
+        {
+            // Developer aid: report what the "in a game?" check sees for the focused window, then exit.
+            var app = ForegroundProbe.Get();
+            var settings = new ConfigStore(DataDir).Load().Config.Settings;
+            File.WriteAllText(e.Args[probe + 1], $"exe={app.Exe ?? "(none)"} fullscreen={app.Fullscreen} ringsOff={Suppression.Applies(settings, app)}\n");
+            Shutdown();
+            return;
+        }
+        var render = Array.IndexOf(e.Args, "--render");
+        if (render >= 0 && render + 1 < e.Args.Length)
+        {
+            // Developer aid, handled before the single-instance check so it works while RingDeck is running.
+            Store = new ConfigStore(DataDir);
+            Config = Store.Load().Config;
+            Icons = new IconStore(Store.IconsDir);
+            Theme.Apply(Config.Settings);
+            RenderProbe.Render(Config, e.Args[render + 1], render + 2 < e.Args.Length && int.TryParse(e.Args[render + 2], out var slice) ? slice : -1);
+            Shutdown();
+            return;
+        }
         _instance = new Mutex(true, InstanceName, out var first);
         if (!first)
         {
@@ -60,13 +82,8 @@ public partial class App : Application
         Config = loaded.Config;
         Icons = new IconStore(Store.IconsDir);
         Theme.Apply(Config.Settings);
-        var render = Array.IndexOf(e.Args, "--render");
-        if (render >= 0 && render + 1 < e.Args.Length)
-        {
-            RenderProbe.Render(Config, e.Args[render + 1], render + 2 < e.Args.Length && int.TryParse(e.Args[render + 2], out var slice) ? slice : -1);
-            Shutdown();
-            return;
-        }
+        try { Autostart.MigrateFromRunKey(); }
+        catch (Exception ex) { Log(ex); }
         Tray = new TrayIcon(ShowEditor, SetPaused, ExitApp);
         if (loaded.Recovered)
             Tray.Notify("Your settings file was damaged",

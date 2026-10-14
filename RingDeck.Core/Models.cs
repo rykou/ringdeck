@@ -21,6 +21,10 @@ public sealed class GlobalSettings
     public bool Animations { get; set; } = true;
     public bool SpiralClose { get; set; } = true;
     public bool InstantPointer { get; set; }
+    /// <summary>Ring shortcuts are ignored while a fullscreen app (typically a game) has focus.</summary>
+    public bool DisableInFullscreen { get; set; } = true;
+    /// <summary>Programs (exe names) in which ring shortcuts are always ignored.</summary>
+    public List<string> ExcludedApps { get; set; } = new();
 }
 
 public sealed class Ring

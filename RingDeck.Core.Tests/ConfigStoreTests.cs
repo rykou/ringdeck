@@ -112,6 +112,18 @@ public class ConfigStoreTests : IDisposable
     }
 
     [Fact]
+    public void GameSettingsDefaultOnAndNormalise()
+    {
+        Assert.True(new GlobalSettings().DisableInFullscreen);
+        Assert.Empty(new GlobalSettings().ExcludedApps);
+        var config = ConfigStore.FromJson("""{ "settings": { "disableInFullscreen": false, "excludedApps": [" Wow.exe ", "", null, "wow.exe", "Game.exe"] } }""")!;
+        Assert.False(config.Settings.DisableInFullscreen);
+        Assert.Equal(new[] { "Wow.exe", "Game.exe" }, config.Settings.ExcludedApps);
+        Assert.Empty(ConfigStore.FromJson("""{ "settings": { "excludedApps": null } }""")!.Settings.ExcludedApps);
+        Assert.True(ConfigStore.FromJson("""{ "settings": { } }""")!.Settings.DisableInFullscreen);   // configs from 0.1.x gain the default
+    }
+
+    [Fact]
     public void OutOfRangeSettingsAreClamped()
     {
         var config = ConfigStore.FromJson("""{ "settings": { "scale": 99 }, "rings": [ { "radius": -5 } ] }""")!;

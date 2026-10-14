@@ -61,8 +61,10 @@ public sealed class RingVisual : FrameworkElement
             DrawIcon(dc, slice, at, r, Contrast(fillColor), dpi);
             if (slice.Action is NestedRingAction)
                 dc.DrawEllipse(accent, null, Along(center, angle, Radius * pose.RadiusFactor + r + 7), 3, 3);
-            if (ring.ShowLabels && !selected && slice.Label.Length > 0)
-                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 3), 11, Theme.Frozen(Colors.White), 120, dpi, false, true);
+            // The label stays under the slice while it is selected too (it is also shown in the centre);
+            // it only moves down a little to clear the highlight ring.
+            if (ring.ShowLabels && slice.Label.Length > 0)
+                DrawText(dc, slice.Label, new Point(at.X, at.Y + r + (selected ? 9 : 3)), 11, Theme.Frozen(Colors.White), 120, dpi, false, true);
         }
 
         if (Selected >= 0 && Selected < count)

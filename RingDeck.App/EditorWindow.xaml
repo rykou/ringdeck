@@ -102,6 +102,16 @@
           <CheckBox Content="Spiral outward on close" IsChecked="{Binding SpiralClose}" />
           <CheckBox Content="Pointer snaps instantly" IsChecked="{Binding InstantPointer}" />
           <CheckBox x:Name="autostartBox" Content="Start RingDeck with Windows" Click="OnAutostart" Margin="0,14,0,0" />
+
+          <TextBlock Style="{StaticResource Heading}" Text="Games" Margin="0,26,0,4" />
+          <CheckBox Content="Turn rings off in fullscreen apps and games" IsChecked="{Binding DisableInFullscreen}" />
+          <TextBlock Style="{StaticResource Caption}" Text="Also off in these programs (one per line, for example Wow.exe)" TextWrapping="Wrap" />
+          <TextBox x:Name="excludedBox" AcceptsReturn="True" MinHeight="84" MaxHeight="180" VerticalScrollBarVisibility="Auto"
+                   TextChanged="OnExcludedChanged" />
+          <ComboBox x:Name="runningBox" Margin="0,8,0,0" DropDownOpened="OnRunningOpened" SelectionChanged="OnRunningPicked"
+                    ToolTip="Pick a program that is open right now to add it to the list" />
+          <TextBlock Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,6,0,0"
+                     Text="While rings are off, your shortcuts go straight to the game. Use the list for games that run in a window." />
         </StackPanel>
       </Grid>
     </ScrollViewer>
