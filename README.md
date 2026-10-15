@@ -2,6 +2,8 @@
 
 Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut, flick toward a slice, release.
 
+<a href="https://apps.microsoft.com/detail/9N75XDTQ48GV?mode=direct"><img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200" alt="Get it from Microsoft"></a>
+
 [![Download](https://img.shields.io/github/v/release/rykou/ringdeck?label=Download&logo=windows)](https://github.com/rykou/ringdeck/releases/latest)
 [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-PayPal-003087?logo=paypal&logoColor=white)](https://paypal.me/rykou893)
 
