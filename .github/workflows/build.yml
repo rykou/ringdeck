@@ -1,8 +1,5 @@
 # Builds, tests and packages RingDeck from this repository alone, on GitHub's Windows machines.
 # Tag a commit "v<version>" (matching <Version> in Directory.Build.props) to publish a release.
-# Signing: once SignPath has accepted the project, add the secret SIGNPATH_API_TOKEN and the variables
-# SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG and SIGNPATH_SIGNING_POLICY_SLUG (Settings > Secrets and variables
-# > Actions). Until then the workflow still builds and publishes, just unsigned.
 name: Build
 
 on:
@@ -14,7 +11,6 @@ on:
 
 permissions:
   contents: write   # create releases on tags
-  actions: read     # SignPath reads the uploaded artifact
 
 jobs:
   build:
@@ -24,7 +20,6 @@ jobs:
       DOTNET_NOLOGO: 1
       # wix314-binaries.zip from github.com/wixtoolset/wix3 release wix3141rtm
       WIX_ZIP_SHA256: 6AC824E1642D6F7277D0ED7EA09411A508F6116BA6FAE0AA5F2C7DAA2FF43D31
-      HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
       IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
     defaults:
       run:
@@ -95,33 +90,11 @@ jobs:
           path: dist/*.msix
           if-no-files-found: error
 
-      - name: Upload the unsigned MSI
-        id: unsigned
-        uses: actions/upload-artifact@v4
-        with:
-          name: RingDeck-${{ steps.version.outputs.version }}-unsigned
-          path: dist/*.msi
-          if-no-files-found: error
-
-      - name: Sign with SignPath
-        if: env.HAS_SIGNPATH == 'true' && (env.IS_RELEASE == 'true' || github.event_name == 'workflow_dispatch')
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 3600   # release signing may wait for a manual approval
-          output-artifact-directory: signed
-
-      - name: Upload the signed MSI
-        if: env.HAS_SIGNPATH == 'true' && (env.IS_RELEASE == 'true' || github.event_name == 'workflow_dispatch')
+      - name: Upload the MSI
         uses: actions/upload-artifact@v4
         with:
           name: RingDeck-${{ steps.version.outputs.version }}
-          path: signed/*.msi
+          path: dist/*.msi
           if-no-files-found: error
 
       - name: Publish the release
@@ -130,7 +103,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $msi = if (Test-Path signed/*.msi) { Get-Item signed/*.msi } else { Get-Item dist/*.msi }
+          $msi = Get-Item dist/*.msi
           gh release view $tag *> $null
           if ($LASTEXITCODE) { gh release create $tag --title "RingDeck $tag" --generate-notes --verify-tag }
           gh release upload $tag $msi.FullName --clobber

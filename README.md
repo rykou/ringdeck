@@ -69,7 +69,7 @@ never included when you export rings, since anyone with a webhook URL can post t
 - Windows blocks input to programs running as administrator; RingDeck shows a notification instead.
 - Emoji used as icons are drawn in one colour.
 - Exported rings do not include image icons.
-- The MSI on GitHub is not code-signed yet, so SmartScreen warns on first run. The Microsoft Store version is
+- The MSI on GitHub is not code-signed, so SmartScreen warns on first run. The Microsoft Store version is
   signed by Microsoft and installs without a warning.
 
 ## Build (from WSL)
@@ -79,17 +79,6 @@ never included when you export rings, since anyone with a webhook URL can post t
     ./build.sh         # dist/RingDeck-<version>.msi
 
 Needs a .NET 10 SDK and the WiX 3.14 binaries; see the header of `build.sh` for where they are looked up.
-
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
-[SignPath Foundation](https://signpath.org). Signing is being set up: until it is, releases on GitHub are not signed.
-
-- Committers and reviewers: [rykou](https://github.com/rykou)
-- Approvers: [rykou](https://github.com/rykou)
-
-Only installers built by this repository's [GitHub Actions workflow](.github/workflows/build.yml) from a tagged commit
-are signed. Nothing built on a personal computer is.
 
 ## Privacy
 
