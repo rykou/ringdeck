@@ -69,7 +69,8 @@ never included when you export rings, since anyone with a webhook URL can post t
 - Windows blocks input to programs running as administrator; RingDeck shows a notification instead.
 - Emoji used as icons are drawn in one colour.
 - Exported rings do not include image icons.
-- The installer is not code-signed, so SmartScreen warns on first run.
+- The MSI on GitHub is not code-signed yet, so SmartScreen warns on first run. The Microsoft Store version is
+  signed by Microsoft and installs without a warning.
 
 ## Build (from WSL)
 
@@ -82,7 +83,7 @@ Needs a .NET 10 SDK and the WiX 3.14 binaries; see the header of `build.sh` for 
 ## Code signing policy
 
 Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
-[SignPath Foundation](https://signpath.org). Signing is being set up: releases up to 0.2.4 are not signed yet.
+[SignPath Foundation](https://signpath.org). Signing is being set up: until it is, releases on GitHub are not signed.
 
 - Committers and reviewers: [rykou](https://github.com/rykou)
 - Approvers: [rykou](https://github.com/rykou)
@@ -92,8 +93,13 @@ are signed. Nothing built on a personal computer is.
 
 ## Privacy
 
-RingDeck does not send information to other computers, with one exception you control: when you use an AI chat slice,
-the text of that chat goes to the AI service you set up for that slice, and nowhere else. Your rings, snippets and
+RingDeck does not send information to other computers, except when you choose a slice that does:
+
+- **AI chat slices** send the text of that chat to the AI service you set up for that slice, and nowhere else.
+- **Web request slices** send the message you wrote (and the clipboard picture, if you ticked that) to the web service
+  or address you set up for that slice, and nowhere else.
+
+Nothing is sent in the background, and there is no telemetry. Your rings, snippets and
 settings stay on your PC, in `%APPDATA%\RingDeck`.
 
 ## Support
