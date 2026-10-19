@@ -20,6 +20,7 @@ public partial class AiPanel : Window
     readonly List<ChatMessage> _messages = new();
     CancellationTokenSource? _cts;
     string _lastReply = "";
+    ClipImage? _pendingImage;          // goes with the first message the user sends, when it wasn't sent straight away
 
     AiPanel(AiConnection connection, string? system, IntPtr target, Action<IntPtr, string> insert)
     {
@@ -33,7 +34,8 @@ public partial class AiPanel : Window
 
     /// <summary>Opens the panel (replacing one that is already open) next to the pointer.</summary>
     /// <param name="target">The window the slice was used in; Insert pastes there.</param>
-    public static AiPanel Open(AiConnection connection, AiChatAction action, string? input, IntPtr target, Action<IntPtr, string> insert)
+    /// <param name="image">The clipboard picture, when the slice sends it: it goes with the first message.</param>
+    public static AiPanel Open(AiConnection connection, AiChatAction action, string? input, ClipImage? image, IntPtr target, Action<IntPtr, string> insert)
     {
         _open?.Close();
         var panel = new AiPanel(connection, action.SystemPrompt, target, insert);
@@ -41,9 +43,15 @@ public partial class AiPanel : Window
         panel.Show();
         panel.Activate();
         _open = panel;
-        var start = AiChat.Compose(action.Instruction, input);
+        var start = AiChat.Compose(action.Instruction, input, image is not null);
+        panel._pendingImage = image;
         if (action.SendImmediately && start.Length > 0) panel.Send(start);
-        else { panel.inputBox.Text = start; panel.inputBox.CaretIndex = start.Length; }
+        else
+        {
+            panel.inputBox.Text = start;
+            panel.inputBox.CaretIndex = start.Length;
+            if (image is not null) panel.AddPicture(image, "This picture goes with your first message.");
+        }
         panel.inputBox.Focus();
         return panel;
     }
@@ -65,6 +73,38 @@ public partial class AiPanel : Window
         retryButton.IsEnabled = !busy && _messages.Any(m => m.Role == "user");
         insertButton.IsEnabled = copyButton.IsEnabled = !busy && _lastReply.Length > 0;
         hintText.Text = busy ? "Esc stops the reply" : "Enter sends · Shift+Enter new line · Esc closes";
+    }
+
+    static System.Windows.Media.Imaging.BitmapImage? Thumbnail(ClipImage image)
+    {
+        try
+        {
+            var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+            bitmap.BeginInit();
+            bitmap.StreamSource = new System.IO.MemoryStream(image.Data);
+            bitmap.DecodePixelWidth = 480;
+            bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or System.IO.IOException or InvalidOperationException) { return null; }
+    }
+
+    /// <summary>A picture on the user's side of the conversation, with a line under it.</summary>
+    void AddPicture(ClipImage image, string note)
+    {
+        var panel = new StackPanel();
+        if (Thumbnail(image) is { } bitmap)
+            panel.Children.Add(new Image { Source = bitmap, MaxHeight = 180, MaxWidth = 260, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Right });
+        panel.Children.Add(new TextBlock { Text = note, FontSize = 11, Opacity = 0.75, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Theme.Foreground) });
+        transcript.Children.Add(new Border
+        {
+            Child = panel, CornerRadius = new CornerRadius(10), Padding = new Thickness(8), Margin = new Thickness(60, 4, 0, 4),
+            HorizontalAlignment = HorizontalAlignment.Right, Background = Theme.Frozen(Theme.Accent, 0.22),
+        });
+        scroller.ScrollToEnd();
     }
 
     TextBox AddBubble(string role, string text, bool error = false)
@@ -89,8 +129,11 @@ public partial class AiPanel : Window
     void Send(string text)
     {
         if (Busy || string.IsNullOrWhiteSpace(text)) return;
+        var image = _pendingImage;
+        _pendingImage = null;
+        if (image is not null && !transcript.Children.OfType<Border>().Any(b => b.Child is StackPanel)) AddPicture(image, $"Picture, {image.Data.Length / 1024:N0} KB");
         AddBubble("user", text.Trim());
-        _messages.Add(new ChatMessage("user", text.Trim()));
+        _messages.Add(new ChatMessage("user", text.Trim(), image));
         inputBox.Clear();
         _ = Ask();
     }

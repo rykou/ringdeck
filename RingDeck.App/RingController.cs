@@ -39,7 +39,8 @@ public sealed class RingController : IDisposable
         _session = new RingSession(id => _config().Find(id));
         _input = new InputSender(_hook.IsPhysicallyDown);
         _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier, delay: PreciseDelay.Wait, focuser: new WindowFocuser(_input),
-            webhooks: new WebhookClient(), reveal: App.Instance.Secrets.Reveal, selection: ct => SelectionGrabber.GrabAsync(_input, _clipboard, ct), shrink: ImageShrinker.Fit);
+            webhooks: new WebhookClient(), reveal: App.Instance.Secrets.Reveal, selection: ct => SelectionGrabber.GrabAsync(_input, _clipboard, ct), shrink: ImageShrinker.Fit,
+            chooseScreenshot: AreaPicker.PickAsync, askAi: AskAi);
         _actions = StartActionThread();
         _hook.Error = App.Log;
         WindowAt(3);                       // depths 0-3 ready before the first ring opens
@@ -347,11 +348,15 @@ public sealed class RingController : IDisposable
         _actions.BeginInvoke(new Func<Task>(async () =>
         {
             string? input = null;
+            ClipImage? image = null;
             IntPtr target = IntPtr.Zero;
             try
             {
                 await Task.Delay(60);                     // let the swallowed shortcut key-up settle
                 target = Focus.Foreground();
+                // The picture first: grabbing the selection copies it, which would replace the picture on the clipboard.
+                if (ai.SendImage && _clipboard.GetImage() is { } picture)
+                    image = picture.Data.Length <= AiPictureBytes ? picture : ImageShrinker.Fit(picture, AiPictureBytes);
                 input = ai.Input switch
                 {
                     AiInput.Selection when _input.CanSendToForeground() => await SelectionGrabber.GrabAsync(_input, _clipboard, CancellationToken.None),
@@ -360,19 +365,33 @@ public sealed class RingController : IDisposable
                 };
             }
             catch (Exception ex) { App.Log(ex); }
-            if (ai.ShowChat) _ = _dispatcher.BeginInvoke(() => AiPanel.Open(connection, ai, input, target, InsertReply));
-            else await AnswerToClipboard(slice, connection, ai, input);
+            if (ai.ShowChat) _ = _dispatcher.BeginInvoke(() => AiPanel.Open(connection, ai, input, image, target, InsertReply));
+            else await AnswerToClipboard(slice, connection, ai, input, image);
         }));
     }
 
+    /// <summary>Pictures sent to an AI are kept under this size (bigger ones become a smaller JPEG): the services
+    /// accept about 5 MB per picture, and smaller pictures answer faster.</summary>
+    const int AiPictureBytes = 3_500_000;
+
+    /// <summary>An Ask AI step: finds its connection, keeps the picture to a size the services accept, asks.</summary>
+    async Task<string> AskAi(AskAiStep step, string? text, ClipImage? image, CancellationToken ct)
+    {
+        var connection = _config().FindConnection(step.ConnectionId)
+            ?? throw new InvalidOperationException("its AI connection was deleted. Pick one in the step.");
+        if (image is not null && image.Data.Length > AiPictureBytes) image = ImageShrinker.Fit(image, AiPictureBytes);
+        try { return await AiChat.AskStepAsync(_ai, connection, step, text, image, App.Instance.Secrets.Reveal, ct); }
+        catch (AiException ex) { throw new InvalidOperationException(ex.Message); }
+    }
+
     /// <summary>No chat window: ask once, put the answer on the clipboard, say so. Runs on the actions thread.</summary>
-    async Task AnswerToClipboard(Slice slice, AiConnection connection, AiChatAction ai, string? input)
+    async Task AnswerToClipboard(Slice slice, AiConnection connection, AiChatAction ai, string? input, ClipImage? image)
     {
         string reply;
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-            reply = await AiChat.AskOnceAsync(_ai, connection, ai, input, App.Instance.Secrets.Reveal, cts.Token);
+            reply = await AiChat.AskOnceAsync(_ai, connection, ai, input, App.Instance.Secrets.Reveal, cts.Token, image);
         }
         catch (Exception ex) when (ex is AiException or OperationCanceledException)
         {

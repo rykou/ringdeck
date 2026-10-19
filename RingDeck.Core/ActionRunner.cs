@@ -19,6 +19,8 @@ public sealed class ActionRunner
     readonly Func<CancellationToken, Task<string?>>? _selection;
     readonly Func<ClipImage, int, ClipImage?>? _shrink;
     readonly Func<long> _clock;
+    readonly Func<CancellationToken, Task<bool>>? _chooseScreenshot;
+    readonly Func<AskAiStep, string?, ClipImage?, CancellationToken, Task<string>>? _askAi;
     /// <summary>Keys and mouse buttons a running macro pressed and has not let go yet.</summary>
     readonly List<int> _heldKeys = new();
     readonly List<ClickButton> _heldButtons = new();
@@ -28,10 +30,14 @@ public sealed class ActionRunner
     /// <param name="selection">Reads the text selected in the focused app, for {selection}.</param>
     /// <param name="shrink">Makes a picture fit in a number of bytes (smaller JPEG), or returns null; for Teams.</param>
     /// <param name="clockMs">A millisecond clock, for playing recorded mouse paths in time.</param>
+    /// <param name="chooseScreenshot">Lets the user drag out an area of the screen and puts that picture on the
+    /// clipboard; false when they cancel.</param>
+    /// <param name="askAi">Sends an Ask AI step's question (with the clipboard text and picture it read) and returns the answer.</param>
     public ActionRunner(IInputSender input, IClipboard clipboard, ILauncher launcher, INotifier notifier,
         Func<DateTime>? now = null, Func<int, CancellationToken, Task>? delay = null, IWindowFocuser? focuser = null,
         WebhookClient? webhooks = null, Func<string, string>? reveal = null, Func<CancellationToken, Task<string?>>? selection = null,
-        Func<ClipImage, int, ClipImage?>? shrink = null, Func<long>? clockMs = null)
+        Func<ClipImage, int, ClipImage?>? shrink = null, Func<long>? clockMs = null, Func<CancellationToken, Task<bool>>? chooseScreenshot = null,
+        Func<AskAiStep, string?, ClipImage?, CancellationToken, Task<string>>? askAi = null)
     {
         (_input, _clipboard, _launcher, _notifier) = (input, clipboard, launcher, notifier);
         _now = now ?? (() => DateTime.Now);
@@ -41,6 +47,8 @@ public sealed class ActionRunner
         _reveal = reveal ?? (s => s);
         _selection = selection;
         _shrink = shrink;
+        _chooseScreenshot = chooseScreenshot;
+        _askAi = askAi;
         _clock = clockMs ?? (() => System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency);
     }
 
@@ -128,7 +136,39 @@ public sealed class ActionRunner
 
     /// <summary>Steps that need the keyboard, mouse or clipboard to themselves. A web request only needs them for a
     /// moment (to read the selection or the clipboard picture), and takes its turn just for that.</summary>
-    public static bool UsesInput(MacroStep step) => step is not (DelayStep or LaunchStep or WebhookStep);
+    public static bool UsesInput(MacroStep step) => step is not (DelayStep or LaunchStep or WebhookStep or AskAiStep);
+
+    /// <summary>Runs clipboard or keyboard work in a flow's input turn, unless this card already has it (or there is
+    /// no flow running), so a step that mostly waits on the network only holds the turn for its quick parts.</summary>
+    async Task<T> InTurn<T>(Func<Task<T>> work, CancellationToken ct)
+    {
+        var turn = _inputTurn is { } t && !_hasTurn.Value ? t : null;
+        if (turn is not null) await turn.WaitAsync(ct);
+        try { return await work(); }
+        finally { turn?.Release(); }
+    }
+
+    /// <summary>Reads the clipboard, asks the AI (without holding the input turn), and puts the answer on the clipboard
+    /// in place of what was there, picture included.</summary>
+    async Task AskAi(AskAiStep ask, CancellationToken ct)
+    {
+        if (_askAi is null) throw new InvalidOperationException("AI is not available here.");
+        var (text, image) = await InTurn(() => Task.FromResult((
+            ask.Reads is AiReads.Text or AiReads.Both ? _clipboard.GetText() : null,
+            ask.Reads is AiReads.Picture or AiReads.Both ? _clipboard.GetImage() : null)), ct);
+        if (ask.Reads == AiReads.Picture && image is null)
+            throw new InvalidOperationException("there is no picture on the clipboard to ask about. Take a screenshot first.");
+        var answer = await _askAi(ask, text, image, ct);
+        await InTurn(async () =>
+        {
+            for (var waited = 0; !_clipboard.TrySetText(answer); waited += ClipboardRetryMs)
+            {
+                if (waited >= ClipboardGiveUpMs) throw new InvalidOperationException("the clipboard is in use by another program.");
+                await _delay(ClipboardRetryMs, ct);
+            }
+            return true;
+        }, ct);
+    }
 
     /// <summary>Runs a flow: every card reached from Start, each once all the cards wired into it are done, so
     /// branches run at the same time. A failing card stops the whole flow, like Esc.</summary>
@@ -163,7 +203,12 @@ public sealed class ActionRunner
                 _hasTurn.Value = turn;
                 await RunSteps(node.Steps, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                stop.Cancel();                      // stopped here (a cancelled area choice, or Esc): stop every branch
+                throw;
+            }
+            catch (Exception ex)
             {
                 stop.Cancel();
                 throw new InvalidOperationException($"\"{FlowText.Title(node)}\": {ex.Message}", ex);
@@ -323,6 +368,14 @@ public sealed class ActionRunner
             case MouseMoveStep move:
                 await MovePath(move, ct);
                 return false;
+            case AskAiStep ask:
+                await AskAi(ask, ct);
+                return false;
+            case ScreenshotStep { Area: ScreenshotArea.Choose }:
+                if (_chooseScreenshot is null) throw new InvalidOperationException("choosing an area is not available here.");
+                // Cancelling the choice stops the macro or flow quietly, like Esc: there is no picture to go on with.
+                if (!await _chooseScreenshot(ct)) throw new OperationCanceledException();
+                return false;
             case ScreenshotStep shot:
                 _clipboard.PutScreenshot(shot.Area);
                 return false;
@@ -381,7 +434,7 @@ public sealed class ActionRunner
     {
         KeyStep => "keys", TextStep => "type text", DelayStep => "wait", PasteStep => "paste",
         KeyDownStep => "key down", KeyUpStep => "key up", ClickStep => "click", MouseDownStep => "mouse down",
-        MouseUpStep => "mouse up", MouseMoveStep => "mouse move", ScrollStep => "scroll", ScreenshotStep => "screenshot",
+        MouseUpStep => "mouse up", MouseMoveStep => "mouse move", ScrollStep => "scroll", ScreenshotStep => "screenshot", AskAiStep => "ask AI",
         LaunchStep => "open", FocusStep => "focus window", ClipboardStep => "set clipboard",
         WebhookStep w => "send to " + Webhooks.Name(w.Request.Service), _ => "step",
     };

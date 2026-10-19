@@ -72,7 +72,9 @@ public static class FlowGraph
         var requests = node.Steps.OfType<WebhookStep>().Select(w => w.Request)
             .Where(r => !r.SendImage && Webhooks.SupportsImages(r.Service)).ToList();
         if (requests.Count == 0) return requests;
-        var shotBefore = flow.Nodes.Any(n => n != node && n.Steps.Any(s => s is ScreenshotStep) && Leads(flow, n.Id, node.Id));
+        // Only while the screenshot is still on the clipboard: an Ask AI card in between replaces it with its answer.
+        var shotBefore = flow.Nodes.Any(n => n != node && n.Steps.Any(s => s is ScreenshotStep) && Leads(flow, n.Id, node.Id)
+            && !flow.Nodes.Any(m => m != n && m != node && m.Steps.Any(s => s is AskAiStep) && Leads(flow, n.Id, m.Id) && Leads(flow, m.Id, node.Id)));
         var shotInside = node.Steps.TakeWhile(s => s is not WebhookStep).Any(s => s is ScreenshotStep);
         return shotBefore || shotInside ? requests : new List<WebRequest>();
     }

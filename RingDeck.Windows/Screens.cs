@@ -79,5 +79,12 @@ public static class Screens
         SetWindowPos(hwnd, Topmost, x, y, size, size, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
 
+    /// <summary>Positions a window in physical pixels, on top. Called twice, as in <see cref="Place"/>.</summary>
+    public static void PlaceRect(IntPtr hwnd, int x, int y, int width, int height)
+    {
+        SetWindowPos(hwnd, Topmost, x, y, width, height, SWP_SHOWWINDOW);
+        SetWindowPos(hwnd, Topmost, x, y, width, height, SWP_SHOWWINDOW);
+    }
+
     public static void Park(IntPtr hwnd) => SetWindowPos(hwnd, Topmost, -32000, -32000, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE);
 }

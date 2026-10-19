@@ -27,6 +27,7 @@ public sealed class FlowWindow : Window
     readonly StackPanel _inspector = new() { Margin = new Thickness(16) };
     readonly TextBlock _status = new() { VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly Dictionary<Guid, MacroAction> _stepLists = new();
+    readonly HashSet<Guid> _asList = new();     // single-step cards the user chose to edit as a list of steps
     readonly Brush _cardBack, _cardEdge, _subtle, _accent;
 
     FlowNode? _node;          // selected card
@@ -178,6 +179,9 @@ public sealed class FlowWindow : Window
         Item(FlowCardKind.Wait, "Wait", "A pause, in milliseconds", () => Single(new DelayStep { Ms = 500 }));
         Item(FlowCardKind.Clipboard, "Set clipboard", "Puts text on the clipboard", () => Single(new ClipboardStep()));
         Item(FlowCardKind.Screenshot, "Screenshot", "Puts a screenshot on the clipboard", () => Single(new ScreenshotStep()));
+        Item(FlowCardKind.Screenshot, "Screenshot area", "When it runs, the flow waits for you to drag out an area of the screen; that picture goes on the clipboard",
+            () => Single(new ScreenshotStep { Area = ScreenshotArea.Choose }));
+        Item(FlowCardKind.Ai, "Ask AI", "Asks your AI about the clipboard picture or text; the answer goes on the clipboard", () => Single(_editor.NewAskAi()));
         Item(FlowCardKind.Focus, "Focus window", "Brings a window to the front", () => Single(new FocusStep()));
         Item(FlowCardKind.Web, "Send to web", "Discord, Slack, Teams, a phone notification, any web address", () => Single(new WebhookStep()));
         Item(FlowCardKind.Steps, "Steps", "An empty card for a list of steps", () => new FlowNode { Title = "Steps" });
@@ -197,6 +201,13 @@ public sealed class FlowWindow : Window
             // Sending straight after a screenshot almost always means sending the screenshot.
             if (from.Steps.Any(s => s is ScreenshotStep))
                 foreach (var web in node.Steps.OfType<WebhookStep>()) web.Request.SendImage = true;
+            // ...and sending straight after Ask AI means sending its answer, which has replaced the picture.
+            if (from.Steps.Any(s => s is AskAiStep))
+                foreach (var web in node.Steps.OfType<WebhookStep>())
+                {
+                    web.Request.Message = "{clipboard}";
+                    web.Request.SendImage = false;
+                }
             var (fw, fh) = SizeOf(from);
             node.X = from.X + fw + 90;
             node.Y = from.Y + fh / 2 - h / 2;
@@ -243,6 +254,7 @@ public sealed class FlowWindow : Window
         FlowCardKind.Click or FlowCardKind.Move or FlowCardKind.Scroll => Color.FromRgb(0xFF, 0x7A, 0xB6),
         FlowCardKind.Clipboard or FlowCardKind.Screenshot => Color.FromRgb(0x3D, 0xDC, 0x84),
         FlowCardKind.Web => Color.FromRgb(0xFF, 0x7A, 0x59),
+        FlowCardKind.Ai => Color.FromRgb(0x2D, 0xD4, 0xBF),
         _ => Color.FromRgb(0x9A, 0xA0, 0xB5),
     };
 
@@ -251,7 +263,7 @@ public sealed class FlowWindow : Window
         FlowCardKind.Start => 62982, FlowCardKind.Stop => 63275, FlowCardKind.Steps => 63074, FlowCardKind.Open => 62555,
         FlowCardKind.Type => 63504, FlowCardKind.Paste => 62166, FlowCardKind.Keys => 62649, FlowCardKind.Click => 58438,
         FlowCardKind.Move => 61801, FlowCardKind.Scroll => 61835, FlowCardKind.Wait => 63527, FlowCardKind.Clipboard => 62154,
-        FlowCardKind.Screenshot => 63118, FlowCardKind.Focus => 61022, FlowCardKind.Web => 63130, _ => 62702,
+        FlowCardKind.Screenshot => 63118, FlowCardKind.Focus => 61022, FlowCardKind.Web => 63130, FlowCardKind.Ai => 63142, _ => 62702,
     });
 
     static Color Fade(Color c, byte alpha) => Color.FromArgb(alpha, c.R, c.G, c.B);
@@ -538,6 +550,10 @@ public sealed class FlowWindow : Window
     internal void SelectBusiestCard() =>
         Select(Flow.Nodes.Where(n => n.Kind == FlowNodeKind.Action).OrderByDescending(n => n.Steps.Count).FirstOrDefault(), null);
 
+    /// <summary>Developer aid (--shot-editor): the action cards, to select one at a time.</summary>
+    internal IReadOnlyList<FlowNode> ActionCards => Flow.Nodes.Where(n => n.Kind == FlowNodeKind.Action).ToList();
+    internal void SelectCard(FlowNode node) => Select(node, null);
+
     /// <summary>Zooms and moves so every card is in view (between 60% and 100%).</summary>
     void Fit()
     {
@@ -570,6 +586,47 @@ public sealed class FlowWindow : Window
     // =====================================================================================================
     // side panel
 
+    static string Describe(FlowNode node) => FlowText.Kind(node) switch
+    {
+        FlowCardKind.Open => "Opens an app, file, folder or web address.",
+        FlowCardKind.Type => "Types text into the window in front.",
+        FlowCardKind.Paste => "Pastes text into the window in front, through the clipboard.",
+        FlowCardKind.Keys => "Presses keys in the window in front.",
+        FlowCardKind.Click => "Clicks a mouse button where the pointer is.",
+        FlowCardKind.Move => "Moves the pointer along a recorded path.",
+        FlowCardKind.Scroll => "Turns the mouse wheel where the pointer is.",
+        FlowCardKind.Wait => "Pauses before the next card.",
+        FlowCardKind.Clipboard => "Puts text on the clipboard.",
+        FlowCardKind.Screenshot => node.Steps[0] is ScreenshotStep { Area: ScreenshotArea.Choose }
+            ? "Waits while you drag out an area of the screen, then puts that picture on the clipboard."
+            : "Puts a picture of the screen on the clipboard.",
+        FlowCardKind.Focus => "Brings a window to the front.",
+        FlowCardKind.Web => "Sends a message, and the clipboard picture if you like, to a web service.",
+        FlowCardKind.Ai => "Asks your AI about the clipboard picture or text. The answer goes on the clipboard.",
+        _ => node.Steps.Count == 0 ? "Add steps below; they play top to bottom." : "Plays its steps top to bottom.",
+    };
+
+    /// <summary>The card's icon, title and what it does, at the top of the side panel.</summary>
+    UIElement CardHeader(FlowNode node)
+    {
+        var kind = FlowText.Kind(node);
+        var colour = KindColor(kind);
+        var icon = new Border
+        {
+            Width = 44, Height = 44, CornerRadius = new CornerRadius(12), Background = new SolidColorBrush(Fade(colour, 46)), VerticalAlignment = VerticalAlignment.Top,
+            Child = new TextBlock { Text = Glyph(kind), FontFamily = IconAssets.IconFont, FontSize = 22, Foreground = new SolidColorBrush(colour),
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+        };
+        var words = new StackPanel { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        words.Children.Add(new TextBlock { Text = FlowText.Title(node), FontSize = 20, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+        words.Children.Add(new TextBlock { Text = Describe(node), Foreground = _subtle, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
+        var header = new DockPanel();
+        DockPanel.SetDock(icon, Dock.Left);
+        header.Children.Add(icon);
+        header.Children.Add(words);
+        return header;
+    }
+
     void ShowInspector() => _editor.BuildQuietly(_inspector, () =>
     {
         var add = _inspector.Children;
@@ -577,7 +634,7 @@ public sealed class FlowWindow : Window
         TextBlock Note(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = _subtle, Margin = new Thickness(0, 0, 0, 10) };
         Button Remove(string text, Action act)
         {
-            var button = new Button { Content = text, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0) };
+            var button = new Button { Content = text, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
             button.Click += (_, _) => { act(); (_node, _wire) = (null, null); _editor.FlowChanged(); Refresh(); };
             return button;
         }
@@ -609,8 +666,8 @@ public sealed class FlowWindow : Window
                 add.Add(Remove("Delete", () => FlowGraph.Remove(Flow, stop)));
                 return;
             case { } node:
-                add.Add(Heading(FlowText.Title(node)));
-                add.Add(new TextBlock { Text = "Name (optional)", Foreground = _subtle, Margin = new Thickness(0, 0, 0, 4) });
+                add.Add(CardHeader(node));
+                add.Add(new TextBlock { Text = "Card name (optional)", Foreground = _subtle, FontSize = 12, Margin = new Thickness(0, 14, 0, 4) });
                 var name = new TextBox { Text = node.Title, ToolTip = "Leave empty to name the card after what it does" };
                 name.TextChanged += (_, _) => node.Title = name.Text;
                 add.Add(name);
@@ -632,9 +689,23 @@ public sealed class FlowWindow : Window
                 }
                 if (!_stepLists.TryGetValue(node.Id, out var steps) || steps.Steps != node.Steps)
                     _stepLists[node.Id] = steps = new MacroAction { Steps = node.Steps };
-                var list = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
-                add.Add(list);
-                _editor.BuildMacroInto(list, steps);
+                var body = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+                add.Add(body);
+                var single = node.Steps.Count == 1 && !_asList.Contains(node.Id);
+                if (single)
+                {
+                    // A card that does one thing gets a plain form, not the step-list editor.
+                    _editor.BuildCardForm(body, node, steps, () => { _editor.FlowChanged(); Refresh(); });
+                    var more = new Button
+                    {
+                        Content = "Add more steps to this card", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 18, 0, 0),
+                        ToolTip = "Edit this card as a list of steps, played top to bottom",
+                    };
+                    more.Click += (_, _) => { _asList.Add(node.Id); ShowInspector(); };
+                    add.Add(more);
+                }
+                else _editor.BuildMacroInto(body, steps);
+                add.Add(new Separator { Margin = new Thickness(0, 18, 0, 6) });
                 add.Add(Remove("Delete card", () => FlowGraph.Remove(Flow, node)));
                 return;
         }

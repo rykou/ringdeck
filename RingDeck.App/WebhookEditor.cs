@@ -112,7 +112,8 @@ public partial class EditorWindow
         add.Add(WebHint("Placeholders: {selection} (the text selected where you used the ring)  {clipboard}  {date}  {time}." +
             (r.Service == WebService.Custom ? " In the address and body, {message} is this message." : "")));
         if (Webhooks.SupportsImages(r.Service))
-            add.Add(Bound(new CheckBox { Content = "Also send the picture on the clipboard (a screenshot or a copied image), when there is one", Margin = new Thickness(0, 12, 0, 0) },
+            add.Add(Bound(new CheckBox { Content = new TextBlock { Text = "Also send the picture on the clipboard (a screenshot or a copied image), when there is one", TextWrapping = TextWrapping.Wrap },
+                Margin = new Thickness(0, 12, 0, 0) },
                 ToggleButton.IsCheckedProperty, r, nameof(WebRequest.SendImage)));
         if (r.Service == WebService.Teams)
             add.Add(WebHint("Teams only accepts small messages (about 28 KB), so the picture is made smaller to fit: usually 500 to 800 pixels wide, less for busy screenshots. Fine for a dialog or an error, too small for fine print."));

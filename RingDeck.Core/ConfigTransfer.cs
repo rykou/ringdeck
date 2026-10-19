@@ -11,7 +11,9 @@ public static class ConfigTransfer
         copy.Settings = new GlobalSettings();
         copy.Rings.RemoveAll(r => r.Id != ringId && !RingGraph.Reaches(config, ringId, r.Id));
         copy.Rings = copy.Rings.OrderBy(r => r.Id == ringId ? 0 : 1).ToList();
-        var used = copy.Rings.SelectMany(r => r.Slices).Select(s => s.Action).OfType<AiChatAction>().Select(a => a.ConnectionId).ToHashSet();
+        var used = copy.Rings.SelectMany(r => r.Slices).Select(s => s.Action).OfType<AiChatAction>().Select(a => a.ConnectionId)
+            .Concat(copy.Rings.SelectMany(r => r.Slices).SelectMany(s => AskAiStep.In(s.Action)).OfType<AskAiStep>().Select(a => a.ConnectionId))
+            .ToHashSet();
         copy.AiConnections.RemoveAll(c => !used.Contains(c.Id));
         StripSecrets(copy);
         return copy;
@@ -62,6 +64,8 @@ public static class ConfigTransfer
                 if (slice.Icon.StartsWith("file:", StringComparison.Ordinal)) slice.Icon = "";
                 if (slice.Action is NestedRingAction nested && ids.TryGetValue(nested.RingId, out var mapped)) nested.RingId = mapped;
                 if (slice.Action is AiChatAction ai && connections.TryGetValue(ai.ConnectionId, out var connection)) ai.ConnectionId = connection;
+                foreach (var ask in AskAiStep.In(slice.Action).OfType<AskAiStep>())
+                    if (connections.TryGetValue(ask.ConnectionId, out var asked)) ask.ConnectionId = asked;
             }
         }
         target.Rings.AddRange(copy.Rings);

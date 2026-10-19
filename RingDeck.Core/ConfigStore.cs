@@ -169,6 +169,12 @@ public sealed class ConfigStore
                 slice.Icon ??= "";
                 slice.ConfirmMs = Math.Clamp(slice.ConfirmMs, 0, RingSession.MaxConfirmMs);
                 if (slice.Action is AiChatAction ai) { ai.Instruction ??= ""; ai.SystemPrompt ??= ""; }
+                foreach (var ask in AskAiStep.In(slice.Action).OfType<AskAiStep>().ToList())
+                {
+                    ask.Instruction ??= "";
+                    ask.SystemPrompt ??= "";
+                    if (!Enum.IsDefined(ask.Reads)) ask.Reads = AiReads.Picture;
+                }
                 if (slice.Action is MacroAction macro)
                     macro.Steps = (macro.Steps ?? new()).Where(s => s is not null).ToList();
                 if (slice.Action is WebhookAction hook) hook.Request = Normalise(hook.Request);

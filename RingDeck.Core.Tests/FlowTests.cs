@@ -37,10 +37,10 @@ public class FlowTests
         }
     }
 
-    static (ActionRunner, Desk) Make()
+    static (ActionRunner, Desk) Make(Func<CancellationToken, Task<bool>>? choose = null)
     {
         var d = new Desk();
-        return (new ActionRunner(d, d, d, d, () => new DateTime(2026, 10, 19), d.Delay), d);
+        return (new ActionRunner(d, d, d, d, () => new DateTime(2026, 10, 19), d.Delay, chooseScreenshot: choose), d);
     }
 
     static FlowNode Card(string title, params MacroStep[] steps) => new() { Title = title, Steps = steps.ToList() };
@@ -173,6 +173,46 @@ public class FlowTests
         Assert.Equal(new[] { "screenshot ActiveWindow" }, d.Log);
         Assert.Equal("Screenshot", FlowText.Title(shot));
         Assert.Equal("The window in front, to the clipboard", FlowText.Summary(shot));
+    }
+
+    [Fact]
+    public async Task AScreenshotAreaWaitsForTheChoiceThenGoesOn()
+    {
+        var (flow, start, stop) = Empty();
+        var shot = Card("", new ScreenshotStep { Area = ScreenshotArea.Choose });
+        var send = Card("Send", new LaunchStep { Target = "after" });
+        flow.Nodes.AddRange(new[] { shot, send });
+        FlowGraph.Link(flow, start.Id, shot.Id);
+        FlowGraph.Link(flow, shot.Id, send.Id);
+        FlowGraph.Link(flow, send.Id, stop.Id);
+        var chosen = new TaskCompletionSource<bool>();
+        var (r, d) = Make(_ => chosen.Task);
+        var running = Run(r, flow);
+        await Task.Delay(50);
+        Assert.Empty(d.Log);                                  // halted until the area is chosen
+        chosen.SetResult(true);
+        await running;
+        Assert.Equal(new[] { "open after" }, d.Log);
+        Assert.Empty(d.Notes);
+        Assert.Equal(("Screenshot area", "You drag out the area when it runs"), (FlowText.Title(shot), FlowText.Summary(shot)));
+    }
+
+    [Fact]
+    public async Task CancellingTheAreaStopsEveryBranchQuietly()
+    {
+        var (flow, start, stop) = Empty();
+        var shot = Card("", new ScreenshotStep { Area = ScreenshotArea.Choose });
+        var after = Card("After", new LaunchStep { Target = "after" });
+        var other = Card("Other", new DelayStep { Ms = 100 }, new LaunchStep { Target = "other" });   // a branch that doesn't need the screen
+        flow.Nodes.AddRange(new[] { shot, after, other });
+        FlowGraph.Link(flow, start.Id, shot.Id);
+        FlowGraph.Link(flow, start.Id, other.Id);
+        FlowGraph.Link(flow, shot.Id, after.Id);
+        FlowGraph.Link(flow, after.Id, stop.Id);
+        var (r, d) = Make(_ => Task.FromResult(false));
+        await Run(r, flow);
+        Assert.Empty(d.Log);
+        Assert.Empty(d.Notes);
     }
 
     [Fact]

@@ -100,22 +100,41 @@ public static class AiChat
     /// <summary>The first message: the slice's instruction, a blank line, then the grabbed text inside
     /// &lt;text&gt; tags. The tags tell the model the text is something to work on, not a message to it; without them
     /// "Can you do that?" gets answered instead of rewritten.</summary>
-    public static string Compose(string instruction, string? input)
+    /// <summary>What is asked with a picture when there is no instruction and no text.</summary>
+    public const string PictureQuestion = "What is in this picture? If it contains text, give the text too.";
+
+    public static string Compose(string instruction, string? input, bool withPicture = false)
     {
+        if (withPicture && string.IsNullOrWhiteSpace(instruction) && string.IsNullOrWhiteSpace(input)) return PictureQuestion;
         var parts = new List<string>();
         if (instruction?.Trim() is { Length: > 0 } i) parts.Add(i);
         if (input?.Trim() is { Length: > 0 } text) parts.Add($"<text>\n{text}\n</text>");
         return string.Join("\n\n", parts);
     }
 
-    /// <summary>One question, one answer, no window: what a slice with the chat window turned off does.</summary>
-    public static async Task<string> AskOnceAsync(AiClient client, AiConnection connection, AiChatAction action, string? input,
+    /// <summary>An Ask AI step: one question with what it read from the clipboard, the answer as text.</summary>
+    public static async Task<string> AskStepAsync(AiClient client, AiConnection connection, AskAiStep step, string? text, ClipImage? image,
         Func<string, string> reveal, CancellationToken ct)
     {
-        var message = Compose(action.Instruction, input);
-        if (message.Length == 0) throw new AiException("There was nothing to send: no text was selected and the slice has no instruction.");
+        var message = Compose(step.Instruction, text, image is not null);
+        if (message.Length == 0) throw new AiException("there was nothing to ask: no text on the clipboard and no instruction in the step.");
         var reply = new System.Text.StringBuilder();
-        await foreach (var piece in client.SendAsync(connection, action.SystemPrompt, new[] { new ChatMessage("user", message) }, reveal, ct))
+        await foreach (var piece in client.SendAsync(connection, step.SystemPrompt, new[] { new ChatMessage("user", message, image) }, reveal, ct))
+            reply.Append(piece);
+        return reply.ToString().Trim() is { Length: > 0 } answer ? answer : throw new AiException("the AI sent back an empty answer.");
+    }
+
+    /// <summary>One question, one answer, no window: what a slice with the chat window turned off does.</summary>
+    public static async Task<string> AskOnceAsync(AiClient client, AiConnection connection, AiChatAction action, string? input,
+        Func<string, string> reveal, CancellationToken ct, ClipImage? image = null)
+    {
+        var message = Compose(action.Instruction, input, image is not null);
+        if (message.Length == 0)
+            throw new AiException(action.SendImage
+                ? "There was nothing to send: no text was selected, there was no picture on the clipboard, and the slice has no instruction."
+                : "There was nothing to send: no text was selected and the slice has no instruction.");
+        var reply = new System.Text.StringBuilder();
+        await foreach (var piece in client.SendAsync(connection, action.SystemPrompt, new[] { new ChatMessage("user", message, image) }, reveal, ct))
             reply.Append(piece);
         return reply.ToString().Trim() is { Length: > 0 } text ? text : throw new AiException("The service sent back an empty answer.");
     }

@@ -317,8 +317,22 @@ public partial class EditorWindow
         OpenFlow(flow);
         if (_flowWindow is not { } window) return;
         await Task.Delay(600);
+        // One picture per card, so every card's side panel can be checked.
+        var cards = window.ActionCards;
+        for (var i = 0; i < cards.Count; i++)
+        {
+            window.SelectCard(cards[i]);
+            await Task.Delay(400);
+            SaveWindow(window, Path.ChangeExtension(path, null) + $"-{i + 1}-{FlowText.Kind(cards[i]).ToString().ToLowerInvariant()}.png");
+        }
         window.SelectBusiestCard();
         await Task.Delay(600);
+        SaveWindow(window, path);
+        window.Close();
+    }
+
+    static void SaveWindow(Window window, string path)
+    {
         window.UpdateLayout();
         var root = (FrameworkElement)window.Content;
         var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth, (int)root.ActualHeight, 96, 96, PixelFormats.Pbgra32);
@@ -330,7 +344,6 @@ public partial class EditorWindow
         var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
         encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
         using (var file = File.Create(path)) encoder.Save(file);
-        window.Close();
     }
 
     /// <summary>The steps changed shape (added, removed, moved): rebuild every view of them.</summary>
@@ -481,6 +494,9 @@ public partial class EditorWindow
         RecordButton("Mouse move", "Record a pointer path (F9 starts and stops)", movementOnly: true);
         AddButton("Scroll", () => new ScrollStep(), "Turns the mouse wheel where the pointer is");
         AddButton("Screenshot", () => new ScreenshotStep(), "Puts a screenshot on the clipboard, for a web request to send");
+        AddButton("Ask AI", NewAskAi, "Asks your AI about the clipboard picture or text; the answer goes on the clipboard");
+        AddButton("Screenshot area", () => new ScreenshotStep { Area = ScreenshotArea.Choose },
+            "When it runs, waits for you to drag out an area of the screen, then puts that picture on the clipboard");
         AddButton("Wait", () => new DelayStep { Ms = 100 }, "A pause, in milliseconds");
         AddButton("Type text", () => new TextStep());
         AddButton("Paste text", () => new PasteStep());
@@ -556,7 +572,7 @@ public partial class EditorWindow
         KeyStep => "Key press", TextStep => "Type", PasteStep => "Paste", DelayStep => "Wait",
         LaunchStep => "Open", FocusStep => "Focus", ClipboardStep => "Clipboard", WebhookStep => "Send",
         KeyDownStep => "Key down", KeyUpStep => "Key up", ClickStep => "Click", MouseDownStep => "Mouse down",
-        MouseUpStep => "Mouse up", MouseMoveStep => "Mouse move", ScrollStep => "Scroll", ScreenshotStep => "Screenshot", _ => "",
+        MouseUpStep => "Mouse up", MouseMoveStep => "Mouse move", ScrollStep => "Scroll", ScreenshotStep => "Screenshot", AskAiStep => "Ask AI", _ => "",
     };
 
     UIElement StepRow(MacroAction macro, IReadOnlyList<MacroRow> rows, int index, Action updateTotal)
@@ -594,7 +610,13 @@ public partial class EditorWindow
             MacroRowKind.KeyPress => PressEditor(KeyField((KeyDownStep)step, (KeyUpStep)steps[r.Start + r.Count - 1]), r.Hold(steps), updateTotal),
             MacroRowKind.ButtonPress => PressEditor(ButtonField(((MouseDownStep)step).Button,
                 b => { ((MouseDownStep)step).Button = b; ((MouseUpStep)steps[r.Start + r.Count - 1]).Button = b; }), r.Hold(steps), updateTotal),
-            _ => step switch
+            _ => StepFields(macro, step, updateTotal),
+        });
+        return row;
+    }
+
+    /// <summary>The fields that edit one step (without its label or row buttons).</summary>
+    UIElement StepFields(MacroAction macro, MacroStep step, Action updateTotal) => step switch
             {
                 KeyStep key => Bound(new ShortcutBox { AllowBare = true }, ShortcutBox.ValueProperty, key, nameof(KeyStep.Combo)),
                 KeyDownStep down => Bound(new ShortcutBox { SingleKey = true }, ShortcutBox.ValueProperty, down, nameof(KeyDownStep.Key)),
@@ -605,6 +627,7 @@ public partial class EditorWindow
                 MouseMoveStep move => MouseMoveEditor(macro, move, updateTotal),
                 ScrollStep scroll => ScrollEditor(scroll),
                 ScreenshotStep shot => ScreenshotEditor(shot),
+                AskAiStep ask => AskAiEditor(ask),
                 TextStep text => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap }, TextBox.TextProperty, text, nameof(TextStep.Text)),
                 PasteStep paste => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, ToolTip = "Pasted through the clipboard. Placeholders like {date} work." },
                     TextBox.TextProperty, paste, nameof(PasteStep.Text)),
@@ -613,10 +636,113 @@ public partial class EditorWindow
                 LaunchStep launch => OpenStepEditor(launch),
                 FocusStep focus => FocusStepEditor(focus),
                 WebhookStep hook => WebhookStepEditor(hook),
+                DelayStep wait => MsBox(wait, updateTotal),
                 _ => new TextBlock(),
+            };
+
+    // ----- a flow card that does one thing: its own form -----
+
+    static string FieldCaption(MacroStep step) => step switch
+    {
+        LaunchStep => "App, file, folder or web address",
+        TextStep => "Text to type",
+        PasteStep => "Text to paste (placeholders such as {date} and {clipboard} work)",
+        ClipboardStep => "Text to put on the clipboard",
+        KeyStep => "Keys to press (click the box, then press them)",
+        KeyDownStep => "Key to hold down",
+        KeyUpStep => "Key to let go",
+        ClickStep or MouseDownStep or MouseUpStep => "Mouse button",
+        MouseMoveStep => "Recorded path and speed",
+        ScrollStep => "Direction and how far",
+        ScreenshotStep => "What to capture",
+        FocusStep => "Window to bring to the front",
+        DelayStep => "How long to wait",
+        _ => "",
+    };
+
+    /// <summary>The form for a card holding a single step: full-width fields with their labels above them.</summary>
+    internal void BuildCardForm(Panel host, FlowNode node, MacroAction steps, Action rebuild)
+    {
+        var step = node.Steps[0];
+        switch (step)
+        {
+            case AskAiStep ask: AskAiForm(host, ask, rebuild); return;
+            case WebhookStep hook: FillWebhookForm(host, hook.Request, rebuild); return;
+        }
+        host.Children.Add(Caption(FieldCaption(step)));
+        var fields = StepFields(steps, step, () => { });
+        if (fields is TextBox { AcceptsReturn: true } box) box.MinHeight = 90;
+        host.Children.Add(fields);
+    }
+
+    /// <summary>Ask AI, laid out for the flow window's side panel.</summary>
+    void AskAiForm(Panel host, AskAiStep ask, Action rebuild)
+    {
+        var add = host.Children;
+        var subtle = (Brush)Application.Current.Resources["SubtleBrush"];
+        TextBlock Hint(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = subtle, FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+
+        add.Add(Caption("AI connection"));
+        var row = new DockPanel();
+        var create = new Button { Content = "New…", Margin = new Thickness(6, 0, 0, 0), ToolTip = "Set up a new AI connection" };
+        create.Click += (_, _) =>
+        {
+            var c = new AiConnection { Name = "AI " + (Config.AiConnections.Count + 1) };
+            if (!EditConnection(c)) return;
+            Config.AiConnections.Add(c);
+            ask.ConnectionId = c.Id;
+            Touch();
+            rebuild();
+        };
+        DockPanel.SetDock(create, Dock.Right);
+        row.Children.Add(create);
+        var connection = new ComboBox { ItemsSource = Config.AiConnections.ToList(), DisplayMemberPath = nameof(AiConnection.Name),
+            SelectedItem = Config.FindConnection(ask.ConnectionId) };
+        connection.SelectionChanged += (_, _) => { if (connection.SelectedItem is AiConnection c && c.Id != ask.ConnectionId) { ask.ConnectionId = c.Id; rebuild(); } };
+        row.Children.Add(connection);
+        add.Add(row);
+        if (Config.FindConnection(ask.ConnectionId) is { } chosen)
+            add.Add(Hint($"Model: {(chosen.Model.Trim().Length > 0 ? chosen.Model.Trim() : "not set")}. It has to read images to be asked about a picture."));
+        else
+            add.Add(new TextBlock
+            {
+                Text = Config.AiConnections.Count == 0 ? "No AI connection yet: press New… to set one up." : "Pick the connection to ask.",
+                Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+            });
+
+        add.Add(Caption("It reads, from the clipboard"));
+        (AiReads Value, string Text)[] choices =
+        {
+            (AiReads.Picture, "The picture (a screenshot or a copied image)"), (AiReads.Text, "The text"),
+            (AiReads.Both, "The picture and the text"), (AiReads.Nothing, "Nothing, just the question below"),
+        };
+        var group = "reads-" + Guid.NewGuid().ToString("N");
+        foreach (var (value, text) in choices)
+        {
+            var option = new RadioButton { Content = text, GroupName = group, IsChecked = ask.Reads == value, Margin = new Thickness(0, 2, 0, 2) };
+            option.Checked += (_, _) => ask.Reads = value;
+            add.Add(option);
+        }
+
+        add.Add(Caption("Ask"));
+        add.Add(Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 100, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+            TextBox.TextProperty, ask, nameof(AskAiStep.Instruction)));
+        add.Add(Hint("For example: Read the error in this screenshot and suggest a fix. Left empty, it's asked what the picture shows."));
+
+        add.Add(Caption("How it should answer (optional)"));
+        add.Add(Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 56 }, TextBox.TextProperty, ask, nameof(AskAiStep.SystemPrompt)));
+        add.Add(Hint("For example: Answer in two short sentences, in English."));
+
+        add.Add(new Border
+        {
+            Margin = new Thickness(0, 16, 0, 0), Padding = new Thickness(12, 10, 12, 10), CornerRadius = new CornerRadius(8),
+            Background = Theme.Frozen(Theme.Accent, 0.12),
+            Child = new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap,
+                Text = "The answer replaces what's on the clipboard, picture included. The next cards can paste it, or send it with {clipboard} in a Send to web message.",
             },
         });
-        return row;
     }
 
     const string RowFormat = "RingDeck.MacroRow";
@@ -720,7 +846,40 @@ public partial class EditorWindow
 
     static readonly string[] ButtonNames = { "Left", "Right", "Middle" };
     static readonly string[] ScrollNames = { "Up", "Down", "Left", "Right" };
-    static readonly string[] ScreenshotNames = { "The screen with the pointer", "All screens", "The window in front" };
+    static readonly string[] ScreenshotNames = { "The screen with the pointer", "All screens", "The window in front", "An area I drag out when it runs" };
+
+    static readonly string[] AiReadsNames = { "The picture on the clipboard", "The text on the clipboard", "Picture and text", "Nothing (just the instruction)" };
+
+    /// <summary>A new Ask AI step uses the first connection, if there is one.</summary>
+    internal AskAiStep NewAskAi() => new() { ConnectionId = Config.AiConnections.FirstOrDefault()?.Id ?? Guid.Empty };
+
+    /// <summary>Which connection, what it reads, and what to ask.</summary>
+    UIElement AskAiEditor(AskAiStep ask)
+    {
+        var panel = new StackPanel();
+        var connection = new ComboBox { ItemsSource = Config.AiConnections.ToList(), DisplayMemberPath = nameof(AiConnection.Name),
+            SelectedItem = Config.FindConnection(ask.ConnectionId), ToolTip = "The AI connection to ask (set them up in Settings → AI connections)" };
+        connection.SelectionChanged += (_, _) => { if (connection.SelectedItem is AiConnection c) ask.ConnectionId = c.Id; };
+        panel.Children.Add(connection);
+        if (connection.SelectedItem is null)
+            panel.Children.Add(new TextBlock
+            {
+                Text = Config.AiConnections.Count == 0 ? "Create an AI connection first: Settings → AI connections." : "Pick the connection to ask.",
+                Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+            });
+        var reads = new ComboBox { ItemsSource = AiReadsNames, SelectedIndex = (int)ask.Reads, ToolTip = "What it sends from the clipboard" };
+        reads.SelectionChanged += (_, _) => { if (reads.SelectedIndex >= 0) ask.Reads = (AiReads)reads.SelectedIndex; };
+        panel.Children.Add(Labelled("Reads", reads));
+        panel.Children.Add(Labelled("Ask", Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 44,
+            ToolTip = "For example: Read the error in this screenshot and suggest a fix. Empty: it's asked what the picture shows." },
+            TextBox.TextProperty, ask, nameof(AskAiStep.Instruction))));
+        panel.Children.Add(new TextBlock
+        {
+            Text = "The answer replaces what's on the clipboard (picture included), for the next steps to paste or send.", TextWrapping = TextWrapping.Wrap, FontSize = 11,
+            Foreground = (Brush)Application.Current.Resources["SubtleBrush"], Margin = new Thickness(72, 2, 0, 0),
+        });
+        return panel;
+    }
 
     static UIElement ScreenshotEditor(ScreenshotStep shot)
     {
@@ -839,6 +998,15 @@ public partial class EditorWindow
         var input = new ComboBox { ItemsSource = new[] { "The selected text", "The clipboard", "Nothing" }, SelectedIndex = (int)ai.Input };
         input.SelectionChanged += (_, _) => { if (!_loading) ai.Input = (AiInput)input.SelectedIndex; };
         add.Add(input);
+        add.Add(Bound(new CheckBox { Content = new TextBlock { Text = "Also send the picture on the clipboard (a screenshot or a copied image), for the AI to read", TextWrapping = TextWrapping.Wrap },
+            Margin = new Thickness(0, 12, 0, 0) },
+            ToggleButton.IsCheckedProperty, ai, nameof(AiChatAction.SendImage)));
+        add.Add(new TextBlock
+        {
+            Margin = new Thickness(28, 2, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["SubtleBrush"],
+            Text = "Take a screenshot (Win+Shift+S), then use the ring. The model must be one that reads images, such as GPT-4o, Claude or Gemini. "
+                 + "With no instruction and no text, it's asked what the picture shows. Custom connections get it through {{image}} and {{image_type}}.",
+        });
         var showChat = Bound(new CheckBox { Content = "Show the chat window", Margin = new Thickness(0, 12, 0, 0) },
             ToggleButton.IsCheckedProperty, ai, nameof(AiChatAction.ShowChat));
         var sendNow = Bound(new CheckBox { Content = "Send straight away (otherwise you can edit first)" },

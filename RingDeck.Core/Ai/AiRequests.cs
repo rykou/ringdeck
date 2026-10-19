@@ -4,8 +4,8 @@ using System.Text.Json.Nodes;
 
 namespace RingDeck.Core;
 
-/// <summary>One message in a conversation. Role is "user" or "assistant".</summary>
-public sealed record ChatMessage(string Role, string Content);
+/// <summary>One message in a conversation. Role is "user" or "assistant". A user message can carry a picture.</summary>
+public sealed record ChatMessage(string Role, string Content, ClipImage? Image = null);
 
 /// <summary>A request ready to send: always a POST with a JSON body.</summary>
 public sealed record HttpCall(string Url, IReadOnlyList<KeyValuePair<string, string>> Headers, string Body, bool Stream);
@@ -84,7 +84,14 @@ public static class AiRequests
     {
         var list = new JsonArray();
         if (system is not null) list.Add(new JsonObject { ["role"] = "system", ["content"] = system });
-        foreach (var m in messages) list.Add(new JsonObject { ["role"] = m.Role, ["content"] = m.Content });
+        foreach (var m in messages)
+        {
+            if (m.Image is not { } image) { list.Add(new JsonObject { ["role"] = m.Role, ["content"] = m.Content }); continue; }
+            var parts = new JsonArray();
+            if (m.Content.Length > 0) parts.Add(new JsonObject { ["type"] = "text", ["text"] = m.Content });
+            parts.Add(new JsonObject { ["type"] = "image_url", ["image_url"] = new JsonObject { ["url"] = DataUrl(image) } });
+            list.Add(new JsonObject { ["role"] = m.Role, ["content"] = parts });
+        }
         var body = new JsonObject { ["model"] = c.Model.Trim(), ["messages"] = list, ["stream"] = true };
         if (c.Temperature is { } t) body["temperature"] = t;
         if (c.MaxTokens is { } n) body["max_tokens"] = n;
@@ -94,7 +101,18 @@ public static class AiRequests
     static string Anthropic(AiConnection c, string? system, IReadOnlyList<ChatMessage> messages)
     {
         var list = new JsonArray();
-        foreach (var m in messages) list.Add(new JsonObject { ["role"] = m.Role, ["content"] = m.Content });
+        foreach (var m in messages)
+        {
+            if (m.Image is not { } image) { list.Add(new JsonObject { ["role"] = m.Role, ["content"] = m.Content }); continue; }
+            // The picture goes before the question, which is how Anthropic suggests asking about an image.
+            var parts = new JsonArray(new JsonObject
+            {
+                ["type"] = "image",
+                ["source"] = new JsonObject { ["type"] = "base64", ["media_type"] = image.ContentType, ["data"] = Convert.ToBase64String(image.Data) },
+            });
+            if (m.Content.Length > 0) parts.Add(new JsonObject { ["type"] = "text", ["text"] = m.Content });
+            list.Add(new JsonObject { ["role"] = m.Role, ["content"] = parts });
+        }
         var body = new JsonObject { ["model"] = c.Model.Trim(), ["max_tokens"] = c.MaxTokens ?? 1024, ["messages"] = list, ["stream"] = true };
         if (system is not null) body["system"] = system;
         if (c.Temperature is { } t) body["temperature"] = t;
@@ -105,11 +123,13 @@ public static class AiRequests
     {
         var contents = new JsonArray();
         foreach (var m in messages)
-            contents.Add(new JsonObject
-            {
-                ["role"] = m.Role == "assistant" ? "model" : "user",
-                ["parts"] = new JsonArray(new JsonObject { ["text"] = m.Content }),
-            });
+        {
+            var parts = new JsonArray();
+            if (m.Image is { } image)
+                parts.Add(new JsonObject { ["inline_data"] = new JsonObject { ["mime_type"] = image.ContentType, ["data"] = Convert.ToBase64String(image.Data) } });
+            if (m.Content.Length > 0 || parts.Count == 0) parts.Add(new JsonObject { ["text"] = m.Content });
+            contents.Add(new JsonObject { ["role"] = m.Role == "assistant" ? "model" : "user", ["parts"] = parts });
+        }
         var body = new JsonObject { ["contents"] = contents };
         if (system is not null) body["systemInstruction"] = new JsonObject { ["parts"] = new JsonArray(new JsonObject { ["text"] = system }) };
         if (c.Temperature is not null || c.MaxTokens is not null)
@@ -127,13 +147,19 @@ public static class AiRequests
         var history = new JsonArray();
         foreach (var m in messages) history.Add(new JsonObject { ["role"] = m.Role, ["content"] = m.Content });
         var prompt = messages.LastOrDefault(m => m.Role == "user")?.Content ?? "";
+        // A custom template takes the latest picture through {{image}} (base64) and {{image_type}}; without them it is left out.
+        var image = messages.LastOrDefault(m => m.Image is not null)?.Image;
         return c.BodyTemplate
+            .Replace("{{image}}", image is null ? "" : Convert.ToBase64String(image.Data))
+            .Replace("{{image_type}}", image?.ContentType ?? "")
             .Replace("{{messages}}", history.ToJsonString(Json))
             .Replace("{{model}}", Escape(c.Model.Trim()))
             .Replace("{{prompt}}", Escape(prompt))
             .Replace("{{system}}", Escape(system ?? ""))
             .Replace(KeyPlaceholder, Escape(key));
     }
+
+    static string DataUrl(ClipImage image) => $"data:{image.ContentType};base64,{Convert.ToBase64String(image.Data)}";
 
     /// <summary>JSON string contents without the surrounding quotes, so templates write "{{prompt}}".</summary>
     static string Escape(string text) { var s = JsonSerializer.Serialize(text, Json); return s[1..^1]; }

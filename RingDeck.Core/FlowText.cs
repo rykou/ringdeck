@@ -1,7 +1,7 @@
 namespace RingDeck.Core;
 
 /// <summary>What a flow card is, for its icon and colour.</summary>
-public enum FlowCardKind { Start, Stop, Steps, Open, Type, Paste, Keys, Click, Move, Scroll, Wait, Clipboard, Screenshot, Focus, Web }
+public enum FlowCardKind { Start, Stop, Steps, Open, Type, Paste, Keys, Click, Move, Scroll, Wait, Clipboard, Screenshot, Focus, Web, Ai }
 
 /// <summary>The words on a flow card: a title, and a one-line summary of what it does.</summary>
 public static class FlowText
@@ -25,6 +25,7 @@ public static class FlowText
             ScreenshotStep => FlowCardKind.Screenshot,
             FocusStep => FlowCardKind.Focus,
             WebhookStep => FlowCardKind.Web,
+            AskAiStep => FlowCardKind.Ai,
             _ => FlowCardKind.Steps,
         },
     };
@@ -39,7 +40,8 @@ public static class FlowText
             FlowCardKind.Open => "Open", FlowCardKind.Type => "Type text", FlowCardKind.Paste => "Paste text",
             FlowCardKind.Keys => "Key press", FlowCardKind.Click => "Click", FlowCardKind.Move => "Mouse move",
             FlowCardKind.Scroll => "Scroll", FlowCardKind.Wait => "Wait", FlowCardKind.Clipboard => "Set clipboard",
-            FlowCardKind.Screenshot => "Screenshot", FlowCardKind.Focus => "Focus window",
+            FlowCardKind.Screenshot => node.Steps[0] is ScreenshotStep { Area: ScreenshotArea.Choose } ? "Screenshot area" : "Screenshot",
+            FlowCardKind.Focus => "Focus window", FlowCardKind.Ai => "Ask AI",
             FlowCardKind.Web => "Send to " + Webhooks.Name(((WebhookStep)node.Steps[0]).Request.Service),
             _ => "Steps",
         };
@@ -82,9 +84,17 @@ public static class FlowText
         {
             ScreenshotArea.AllScreens => "All screens, to the clipboard",
             ScreenshotArea.ActiveWindow => "The window in front, to the clipboard",
+            ScreenshotArea.Choose => "You drag out the area when it runs",
             _ => "The screen with the pointer, to the clipboard",
         },
         FocusStep s => Line(string.Join(" · ", new[] { s.Program.Trim(), s.Title.Trim() }.Where(x => x.Length > 0)), "No window set yet"),
+        AskAiStep s => Line(s.Instruction, s.Reads == AiReads.Picture ? "What is in the picture?" : "No instruction yet") + s.Reads switch
+        {
+            AiReads.Picture => " \u00B7 reads the picture",
+            AiReads.Text => " \u00B7 reads the text",
+            AiReads.Both => " \u00B7 reads picture and text",
+            _ => "",
+        },
         WebhookStep s => Line(s.Request.Message, "No message yet")
             + (s.Request.SendImage && Webhooks.SupportsImages(s.Request.Service) ? " + picture" : ""),
         _ => "",

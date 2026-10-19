@@ -63,11 +63,15 @@ public partial class App : Application
         if (demo >= 0 && demo + 2 < e.Args.Length)
         {
             // Developer aid: chat with an OpenAI-compatible endpoint (e.g. a local test server), save a picture, exit.
+            // With a PNG file as a third argument, that picture is sent along and the instruction asks to read it.
             Store = new ConfigStore(DataDir);
             Config = Store.Load().Config;
             Theme.Apply(Config.Settings);
             var connection = new AiConnection { Name = "Local test", Model = "demo-model", Endpoint = e.Args[demo + 1], ApiKey = Secrets.Protect("sk-demo") };
-            var panel = AiPanel.Open(connection, new AiChatAction { Instruction = "Translate to English:" }, "Bom dia! Como vai o projeto?", IntPtr.Zero, (_, _) => { });
+            var picture = demo + 3 < e.Args.Length && File.Exists(e.Args[demo + 3]) ? new ClipImage(File.ReadAllBytes(e.Args[demo + 3]), "image.png", "image/png") : null;
+            var panel = picture is null
+                ? AiPanel.Open(connection, new AiChatAction { Instruction = "Translate to English:" }, "Bom dia! Como vai o projeto?", null, IntPtr.Zero, (_, _) => { })
+                : AiPanel.Open(connection, new AiChatAction { Instruction = "Read the error in this screenshot", SendImage = true }, null, picture, IntPtr.Zero, (_, _) => { });
             _ = panel.SaveWhenDoneAsync(e.Args[demo + 2], TimeSpan.FromSeconds(20)).ContinueWith(_ => Dispatcher.Invoke(Shutdown));
             return;
         }

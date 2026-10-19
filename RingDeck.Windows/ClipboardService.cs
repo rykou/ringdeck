@@ -58,7 +58,12 @@ public sealed class ClipboardService : IClipboard
             ScreenshotArea.ActiveWindow => Screens.ForegroundBounds() ?? throw new InvalidOperationException("no window is in front."),
             _ => Screens.MonitorBounds(x, y),
         };
-        var picture = ScreenGrab.Grab(left, top, width, height);
+        PutPicture(ScreenGrab.Grab(left, top, width, height));
+    }
+
+    /// <summary>Puts a picture on the clipboard, as a bitmap and as PNG.</summary>
+    public static void PutPicture(System.Windows.Media.Imaging.BitmapSource picture)
+    {
         var png = new MemoryStream();
         var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
         encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(picture));

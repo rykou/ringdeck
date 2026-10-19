@@ -130,6 +130,7 @@ public sealed class NestedRingAction : SliceAction
 [JsonDerivedType(typeof(MouseMoveStep), "move")]
 [JsonDerivedType(typeof(ScrollStep), "scroll")]
 [JsonDerivedType(typeof(ScreenshotStep), "screenshot")]
+[JsonDerivedType(typeof(AskAiStep), "ai")]
 public abstract class MacroStep { }
 
 public sealed class KeyStep : MacroStep { public string Combo { get; set; } = ""; }
@@ -150,13 +151,35 @@ public enum ClickButton { Left, Right, Middle }
 
 public enum ScrollDirection { Up, Down, Left, Right }
 
-public enum ScreenshotArea { Screen, AllScreens, ActiveWindow }
+/// <summary>Choose: the user drags out the area when the step runs; the macro or flow waits until they do.</summary>
+public enum ScreenshotArea { Screen, AllScreens, ActiveWindow, Choose }
 
 /// <summary>Takes a screenshot and puts it on the clipboard (a web request can then send it).</summary>
 public sealed class ScreenshotStep : MacroStep
 {
     /// <summary>Screen: the screen the pointer is on.</summary>
     public ScreenshotArea Area { get; set; } = ScreenshotArea.Screen;
+}
+
+/// <summary>What an Ask AI step reads from the clipboard.</summary>
+public enum AiReads { Picture, Text, Both, Nothing }
+
+/// <summary>Asks an AI connection once, with the clipboard picture and/or text, and puts the answer on the clipboard
+/// in place of what was there (a picture it read is gone afterwards), for the next steps to paste or send.</summary>
+public sealed class AskAiStep : MacroStep
+{
+    public Guid ConnectionId { get; set; }
+    public string Instruction { get; set; } = "";
+    public string SystemPrompt { get; set; } = "";
+    public AiReads Reads { get; set; } = AiReads.Picture;
+
+    /// <summary>Every step of a slice's action: a macro's, or every card's in a flow.</summary>
+    public static IEnumerable<MacroStep> In(SliceAction? action) => action switch
+    {
+        MacroAction macro => macro.Steps,
+        FlowAction flow => flow.Nodes.SelectMany(n => n.Steps),
+        _ => Enumerable.Empty<MacroStep>(),
+    };
 }
 
 public enum FlowNodeKind { Action, Start, Stop }
@@ -291,4 +314,6 @@ public sealed class AiChatAction : SliceAction
     public bool SendImmediately { get; set; } = true;
     /// <summary>False: no chat window; the answer goes to the clipboard and a notification says so.</summary>
     public bool ShowChat { get; set; } = true;
+    /// <summary>Also send the picture on the clipboard (a screenshot or a copied image), for the AI to read.</summary>
+    public bool SendImage { get; set; }
 }
