@@ -233,7 +233,7 @@ public partial class EditorWindow
         var edit = new Button { Content = "Set up…", Margin = new Thickness(4, 0, 0, 0) };
         edit.Click += (_, _) =>
         {
-            new WebhookWindow(step.Request) { Owner = (Window?)_macroWindow ?? this }.ShowDialog();
+            new WebhookWindow(step.Request) { Owner = TopWindow }.ShowDialog();
             RefreshMacro();
             Touch();
         };

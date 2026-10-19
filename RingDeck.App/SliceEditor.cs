@@ -9,13 +9,16 @@ using RingDeck.Windows;
 
 namespace RingDeck.App;
 
+/// <summary>Where a macro's step list is shown: the slice panel, the steps window, or a flow card's side panel.</summary>
+public enum MacroPlace { Slice, Window, Card }
+
 public partial class EditorWindow
 {
-    static readonly string[] ActionNames = { "Nothing", "Paste text", "Macro / workflow", "Open app, file or link", "Open another ring", "AI chat", "Send to a web service (Discord, Slack, phone…)" };
+    static readonly string[] ActionNames = { "Nothing", "Paste text", "Macro / workflow", "Open app, file or link", "Open another ring", "AI chat", "Send to a web service (Discord, Slack, phone…)", "Flow: linked actions on a canvas" };
 
     static int ActionIndex(SliceAction? action) => action switch
     {
-        PasteTextAction => 1, MacroAction => 2, LaunchAction => 3, NestedRingAction => 4, AiChatAction => 5, WebhookAction => 6, _ => 0,
+        PasteTextAction => 1, MacroAction => 2, LaunchAction => 3, NestedRingAction => 4, AiChatAction => 5, WebhookAction => 6, FlowAction => 7, _ => 0,
     };
 
     static TextBlock Caption(string text) => new() { Text = text, Style = (Style)Application.Current.Resources["Caption"] };
@@ -29,6 +32,7 @@ public partial class EditorWindow
     void LoadSlicePanel()
     {
         CloseMacroWindowUnlessFor(_slice);
+        CloseFlowWindowUnlessFor(_slice);
         slicePanel.Children.Clear();
         if (_slice is not { } slice || _ring is null) return;
         var add = slicePanel.Children;
@@ -66,7 +70,7 @@ public partial class EditorWindow
             if (_loading || kind.SelectedIndex == ActionIndex(slice.Action)) return;
             slice.Action = kind.SelectedIndex switch
             {
-                1 => new PasteTextAction(), 2 => new MacroAction(), 3 => new LaunchAction(), 4 => new NestedRingAction(), 5 => NewAiAction(), 6 => new WebhookAction(), _ => null,
+                1 => new PasteTextAction(), 2 => new MacroAction(), 3 => new LaunchAction(), 4 => new NestedRingAction(), 5 => NewAiAction(), 6 => new WebhookAction(), 7 => FlowAction.New(), _ => null,
             };
             // Sending to other people is the action most worth guarding against a slip of the mouse.
             if (slice.Action is WebhookAction && slice.ConfirmMs == 0) slice.ConfirmMs = 1000;
@@ -83,6 +87,7 @@ public partial class EditorWindow
             case NestedRingAction nested: NestedEditor(nested); break;
             case AiChatAction ai: AiEditor(ai); break;
             case WebhookAction hook: WebhookEditor(hook); break;
+            case FlowAction flow: FlowEditor(flow); break;
         }
         if (slice.Action is not null) ConfirmEditor(slice);
     }
@@ -232,11 +237,107 @@ public partial class EditorWindow
     }
 
     MacroWindow? _macroWindow;
+    FlowWindow? _flowWindow;
+
+    /// <summary>The window that dialogs (the recorder, web request settings, questions) belong to: the one in front.</summary>
+    Window TopWindow => (Window?)_flowWindow ?? (Window?)_macroWindow ?? this;
+
+    // ----- flows -----
+
+    void FlowEditor(FlowAction flow)
+    {
+        var cards = flow.Nodes.Count(n => n.Kind == FlowNodeKind.Action);
+        slicePanel.Children.Add(Caption($"Flow: {cards} cards, {flow.Wires.Count} links"));
+        if (FlowGraph.Problem(flow) is { } problem)
+            slicePanel.Children.Add(new TextBlock { Text = problem, Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
+        var open = new Button
+        {
+            Content = _flowWindow?.Flow == flow ? "Show the flow editor" : "Open the flow editor", HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 8, 0, 0), ToolTip = "Link actions on a canvas: branches run at the same time",
+        };
+        open.Click += (_, _) => OpenFlow(flow);
+        slicePanel.Children.Add(open);
+        slicePanel.Children.Add(new TextBlock
+        {
+            Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["SubtleBrush"],
+            Text = "Cards run from Start along their links. Several links out of a card run at the same time; at least one branch must end at a Stop.",
+        });
+    }
+
+    void OpenFlow(FlowAction flow)
+    {
+        if (_flowWindow is { } open && open.Flow == flow) { open.WindowState = WindowState.Normal; open.Activate(); return; }
+        if (_slice is not { } slice) return;
+        var window = new FlowWindow(this, slice, flow);
+        _flowWindow = window;
+        window.Closed += (_, _) => { if (_flowWindow != window) return; _flowWindow = null; ShowSlice(_slice); };
+        window.Refresh();
+        window.Show();
+        ShowSlice(_slice);
+    }
+
+    void CloseFlowWindowUnlessFor(Slice? slice)
+    {
+        if (_flowWindow is not { } open || (slice is not null && slice.Action == open.Flow)) return;
+        _flowWindow = null;
+        open.Close();
+    }
+
+    /// <summary>The flow's cards or links changed: save, and update the slice panel's summary.</summary>
+    internal void FlowChanged()
+    {
+        Touch();
+        ShowSlice(_slice);
+    }
+
+    /// <summary>Records steps for a flow card (the recorder belongs to <paramref name="owner"/>).</summary>
+    internal List<MacroStep>? RecordFor(Window owner)
+    {
+        var window = new RecorderWindow(movementOnly: false) { Owner = owner };
+        return window.ShowDialog() == true && window.Result is { Count: > 0 } steps ? steps : null;
+    }
+
+    /// <summary>Fills a panel without its new fields counting as edits.</summary>
+    internal void BuildQuietly(Panel host, Action build)
+    {
+        var was = _loading;
+        _loading = true;
+        try { host.Children.Clear(); build(); }
+        finally { _loading = was; }
+    }
+
+    /// <summary>A flow card's steps, in the flow window's side panel.</summary>
+    internal void BuildMacroInto(Panel host, MacroAction steps) => BuildMacro(host, steps, MacroPlace.Card);
+
+    /// <summary>Developer aid (--shot-editor): opens the first flow slice's canvas, saves a picture of it, closes it.</summary>
+    internal async Task SaveFlowWindowShot(string path)
+    {
+        if (_ring?.Slices.FirstOrDefault(s => s.Action is FlowAction) is not { Action: FlowAction flow } slice) return;
+        ShowSlice(slice);
+        OpenFlow(flow);
+        if (_flowWindow is not { } window) return;
+        await Task.Delay(600);
+        window.SelectBusiestCard();
+        await Task.Delay(600);
+        window.UpdateLayout();
+        var root = (FrameworkElement)window.Content;
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth, (int)root.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        var backdrop = new DrawingVisual();
+        using (var dc = backdrop.RenderOpen())
+            dc.DrawRectangle(Theme.Frozen(Theme.IsDark ? Color.FromRgb(0x20, 0x20, 0x20) : Color.FromRgb(0xF3, 0xF3, 0xF3)), null, new Rect(0, 0, root.ActualWidth, root.ActualHeight));
+        bitmap.Render(backdrop);
+        bitmap.Render(root);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using (var file = File.Create(path)) encoder.Save(file);
+        window.Close();
+    }
 
     /// <summary>The steps changed shape (added, removed, moved): rebuild every view of them.</summary>
     void RefreshMacro()
     {
         _macroWindow?.Rebuild();
+        _flowWindow?.Refresh();
         ShowSlice(_slice);
     }
 
@@ -251,7 +352,7 @@ public partial class EditorWindow
             slicePanel.Children.Add(bring);
             return;
         }
-        BuildMacro(slicePanel, macro, popped: false);
+        BuildMacro(slicePanel, macro, MacroPlace.Slice);
     }
 
     void PopOutMacro(MacroAction macro)
@@ -293,7 +394,7 @@ public partial class EditorWindow
     {
         var was = _loading;
         _loading = true;
-        try { host.Children.Clear(); BuildMacro(host, window.Macro, popped: true); }
+        try { host.Children.Clear(); BuildMacro(host, window.Macro, MacroPlace.Window); }
         finally { _loading = was; }
     }
 
@@ -309,15 +410,17 @@ public partial class EditorWindow
     }
 
     /// <summary>The step list with its view switch, total and add buttons, in the slice panel or the steps window
-    /// (<paramref name="popped"/>), which also gets a toolbar for the whole list.</summary>
-    internal void BuildMacro(Panel host, MacroAction macro, bool popped)
+    /// (<paramref name="place"/>), which also gets a toolbar for the whole list, or a flow card's side panel.</summary>
+    internal void BuildMacro(Panel host, MacroAction macro, MacroPlace place)
     {
         var split = Config.Settings.SplitKeyEvents;
+        var popped = place == MacroPlace.Window;
         if (popped) host.Children.Add(MacroToolbar(macro));
-        var stepsCaption = Caption("Steps, played top to bottom. If a step fails the rest are skipped. Esc stops a running macro.");
+        var stepsCaption = Caption(place == MacroPlace.Card ? "Steps in this card, played top to bottom."
+            : "Steps, played top to bottom. If a step fails the rest are skipped. Esc stops a running macro.");
         stepsCaption.TextWrapping = TextWrapping.Wrap;
         host.Children.Add(stepsCaption);
-        if (!popped)
+        if (place == MacroPlace.Slice)
         {
             var popOut = new Button { Content = "Pop out \u29C9", ToolTip = "Open the steps in their own, bigger window, with Clear all and other tools",
                 HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
@@ -377,6 +480,7 @@ public partial class EditorWindow
         }
         RecordButton("Mouse move", "Record a pointer path (F9 starts and stops)", movementOnly: true);
         AddButton("Scroll", () => new ScrollStep(), "Turns the mouse wheel where the pointer is");
+        AddButton("Screenshot", () => new ScreenshotStep(), "Puts a screenshot on the clipboard, for a web request to send");
         AddButton("Wait", () => new DelayStep { Ms = 100 }, "A pause, in milliseconds");
         AddButton("Type text", () => new TextStep());
         AddButton("Paste text", () => new PasteStep());
@@ -409,7 +513,7 @@ public partial class EditorWindow
         Tool("Clear all", "Remove every step", () =>
         {
             if (macro.Steps.Count == 0) return;
-            if (MessageBox.Show(_macroWindow ?? (Window)this, $"Remove all {macro.Steps.Count} steps?", "RingDeck",
+            if (MessageBox.Show(TopWindow, $"Remove all {macro.Steps.Count} steps?", "RingDeck",
                     MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
             macro.Steps.Clear();
             RefreshMacro();
@@ -443,7 +547,7 @@ public partial class EditorWindow
     /// <summary>Opens the F9 recorder; returns the recorded steps, or null when cancelled or nothing was recorded.</summary>
     List<MacroStep>? Record(bool movementOnly)
     {
-        var window = new RecorderWindow(movementOnly) { Owner = (Window?)_macroWindow ?? this };
+        var window = new RecorderWindow(movementOnly) { Owner = TopWindow };
         return window.ShowDialog() == true && window.Result is { Count: > 0 } steps ? steps : null;
     }
 
@@ -452,7 +556,7 @@ public partial class EditorWindow
         KeyStep => "Key press", TextStep => "Type", PasteStep => "Paste", DelayStep => "Wait",
         LaunchStep => "Open", FocusStep => "Focus", ClipboardStep => "Clipboard", WebhookStep => "Send",
         KeyDownStep => "Key down", KeyUpStep => "Key up", ClickStep => "Click", MouseDownStep => "Mouse down",
-        MouseUpStep => "Mouse up", MouseMoveStep => "Mouse move", ScrollStep => "Scroll", _ => "",
+        MouseUpStep => "Mouse up", MouseMoveStep => "Mouse move", ScrollStep => "Scroll", ScreenshotStep => "Screenshot", _ => "",
     };
 
     UIElement StepRow(MacroAction macro, IReadOnlyList<MacroRow> rows, int index, Action updateTotal)
@@ -500,6 +604,7 @@ public partial class EditorWindow
                 MouseUpStep mu => ButtonField(mu.Button, b => mu.Button = b),
                 MouseMoveStep move => MouseMoveEditor(macro, move, updateTotal),
                 ScrollStep scroll => ScrollEditor(scroll),
+                ScreenshotStep shot => ScreenshotEditor(shot),
                 TextStep text => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap }, TextBox.TextProperty, text, nameof(TextStep.Text)),
                 PasteStep paste => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, ToolTip = "Pasted through the clipboard. Placeholders like {date} work." },
                     TextBox.TextProperty, paste, nameof(PasteStep.Text)),
@@ -615,6 +720,14 @@ public partial class EditorWindow
 
     static readonly string[] ButtonNames = { "Left", "Right", "Middle" };
     static readonly string[] ScrollNames = { "Up", "Down", "Left", "Right" };
+    static readonly string[] ScreenshotNames = { "The screen with the pointer", "All screens", "The window in front" };
+
+    static UIElement ScreenshotEditor(ScreenshotStep shot)
+    {
+        var area = new ComboBox { ItemsSource = ScreenshotNames, SelectedIndex = (int)shot.Area, ToolTip = "What to capture; the picture goes on the clipboard" };
+        area.SelectionChanged += (_, _) => { if (area.SelectedIndex >= 0) shot.Area = (ScreenshotArea)area.SelectedIndex; };
+        return area;
+    }
 
     /// <summary>Which way, and how many notches of the wheel.</summary>
     static UIElement ScrollEditor(ScrollStep scroll)

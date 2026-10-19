@@ -48,7 +48,10 @@ public static class Webhooks
         var title = r.Title.Trim();
         if (!SupportsImages(r.Service)) image = null;
         if (r.Service != WebService.Custom && message.Trim().Length == 0 && image is null)
-            throw new WebhookException("There is nothing to send: the message is empty and there is no image on the clipboard.");
+            throw new WebhookException(!SupportsImages(r.Service) ? "There is nothing to send: the message is empty."
+                : r.SendImage ? "There is nothing to send: the message is empty and there is no image on the clipboard."
+                : "There is nothing to send: the message is empty. To send the picture on the clipboard (a screenshot), tick "
+                  + "\"Also send the picture on the clipboard\" in this request's settings.");
 
         switch (r.Service)
         {

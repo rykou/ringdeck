@@ -48,6 +48,32 @@ public sealed class ClipboardService : IClipboard
         }
     }
 
+    /// <summary>Takes a screenshot and puts it on the clipboard, as a picture and as PNG (which most apps prefer).</summary>
+    public void PutScreenshot(ScreenshotArea area)
+    {
+        var (x, y) = Screens.Cursor();
+        var (left, top, width, height) = area switch
+        {
+            ScreenshotArea.AllScreens => Screens.VirtualBounds(),
+            ScreenshotArea.ActiveWindow => Screens.ForegroundBounds() ?? throw new InvalidOperationException("no window is in front."),
+            _ => Screens.MonitorBounds(x, y),
+        };
+        var picture = ScreenGrab.Grab(left, top, width, height);
+        var png = new MemoryStream();
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(picture));
+        encoder.Save(png);
+        var data = new DataObject();
+        data.SetImage(picture);
+        data.SetData("PNG", png);
+        for (var tries = 0; ; tries++)
+        {
+            try { Clipboard.SetDataObject(data, true); return; }
+            catch (ExternalException) when (tries < 10) { Thread.Sleep(50); }
+            catch (ExternalException) { throw new InvalidOperationException("the clipboard is in use by another program."); }
+        }
+    }
+
     public bool TrySetText(string text)
     {
         try { Clipboard.SetDataObject(text, true); return true; }

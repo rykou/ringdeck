@@ -121,6 +121,7 @@ public sealed class ConfigStore
         {
             WebhookAction hook => new[] { hook.Request },
             MacroAction macro => macro.Steps.OfType<WebhookStep>().Select(w => w.Request),
+            FlowAction flow => flow.Nodes.SelectMany(n => n.Steps).OfType<WebhookStep>().Select(w => w.Request),
             _ => Enumerable.Empty<WebRequest>(),
         });
 
@@ -173,9 +174,34 @@ public sealed class ConfigStore
                 if (slice.Action is WebhookAction hook) hook.Request = Normalise(hook.Request);
                 if (slice.Action is MacroAction m)
                     foreach (var step in m.Steps.OfType<WebhookStep>()) step.Request = Normalise(step.Request);
+                if (slice.Action is FlowAction flow) Normalise(flow);
             }
         }
         return config;
+    }
+
+    /// <summary>A flow that loads in any state works: one Start, steps lists present, wires only between its cards.</summary>
+    static void Normalise(FlowAction flow)
+    {
+        flow.Nodes = (flow.Nodes ?? new()).Where(n => n is not null).ToList();
+        flow.Wires = (flow.Wires ?? new()).Where(w => w is not null).ToList();
+        foreach (var node in flow.Nodes)
+        {
+            if (node.Id == Guid.Empty) node.Id = Guid.NewGuid();
+            if (!Enum.IsDefined(node.Kind)) node.Kind = FlowNodeKind.Action;
+            node.Title ??= "";
+            node.Steps = (node.Steps ?? new()).Where(s => s is not null).ToList();
+            if (!double.IsFinite(node.X)) node.X = 0;
+            if (!double.IsFinite(node.Y)) node.Y = 0;
+            foreach (var step in node.Steps.OfType<WebhookStep>()) step.Request = Normalise(step.Request);
+        }
+        foreach (var extra in flow.Nodes.Where(n => n.Kind == FlowNodeKind.Start).Skip(1)) extra.Kind = FlowNodeKind.Action;
+        if (!flow.Nodes.Any(n => n.Kind == FlowNodeKind.Start)) flow.Nodes.Insert(0, new FlowNode { Kind = FlowNodeKind.Start, X = 40, Y = 200 });
+        var ids = flow.Nodes.Select(n => n.Id).ToHashSet();
+        var kept = new List<FlowWire>();
+        foreach (var wire in flow.Wires.Where(w => ids.Contains(w.From) && ids.Contains(w.To)))
+            if (FlowGraph.CanLink(new FlowAction { Nodes = flow.Nodes, Wires = kept }, wire.From, wire.To)) kept.Add(wire);
+        flow.Wires = kept;
     }
 
     public static AppConfig Sample() => new()

@@ -132,6 +132,18 @@ public class WebhookTests
     }
 
     [Fact]
+    public async Task AnEmptyMessageWithThePictureSwitchedOffSaysWhichBoxToTick()
+    {
+        var (runner, http, desk) = Make(selection: null);
+        desk.Image = Png;                                  // a screenshot is there, but this request doesn't send pictures
+        await Run(runner, new WebRequest { Service = WebService.Teams, Url = "https://x.webhook.office.com/a", Message = "{selection}" });
+        Assert.Equal(0, http.Calls);
+        var note = Assert.Single(desk.Notes);
+        Assert.Contains("Also send the picture", note);
+        Assert.DoesNotContain("no image on the clipboard", note);
+    }
+
+    [Fact]
     public async Task SlackAndGoogleChatPutTheTitleInBold()
     {
         var (runner, http, _) = Make();

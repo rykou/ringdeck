@@ -87,6 +87,7 @@ public sealed class Slice
 [JsonDerivedType(typeof(NestedRingAction), "ring")]
 [JsonDerivedType(typeof(AiChatAction), "ai")]
 [JsonDerivedType(typeof(WebhookAction), "webhook")]
+[JsonDerivedType(typeof(FlowAction), "flow")]
 public abstract class SliceAction { }
 
 public sealed class PasteTextAction : SliceAction
@@ -128,6 +129,7 @@ public sealed class NestedRingAction : SliceAction
 [JsonDerivedType(typeof(MouseUpStep), "mouseup")]
 [JsonDerivedType(typeof(MouseMoveStep), "move")]
 [JsonDerivedType(typeof(ScrollStep), "scroll")]
+[JsonDerivedType(typeof(ScreenshotStep), "screenshot")]
 public abstract class MacroStep { }
 
 public sealed class KeyStep : MacroStep { public string Combo { get; set; } = ""; }
@@ -147,6 +149,54 @@ public sealed class WebhookStep : MacroStep { public WebRequest Request { get; s
 public enum ClickButton { Left, Right, Middle }
 
 public enum ScrollDirection { Up, Down, Left, Right }
+
+public enum ScreenshotArea { Screen, AllScreens, ActiveWindow }
+
+/// <summary>Takes a screenshot and puts it on the clipboard (a web request can then send it).</summary>
+public sealed class ScreenshotStep : MacroStep
+{
+    /// <summary>Screen: the screen the pointer is on.</summary>
+    public ScreenshotArea Area { get; set; } = ScreenshotArea.Screen;
+}
+
+public enum FlowNodeKind { Action, Start, Stop }
+
+/// <summary>A card on a flow's canvas: the start, a stop, or an action holding one or more macro steps.</summary>
+public sealed class FlowNode
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public FlowNodeKind Kind { get; set; } = FlowNodeKind.Action;
+    /// <summary>Empty: a title made from the steps.</summary>
+    public string Title { get; set; } = "";
+    public double X { get; set; }
+    public double Y { get; set; }
+    public List<MacroStep> Steps { get; set; } = new();
+}
+
+/// <summary>A link from one card to the next. A card with several links out starts those branches at the same time;
+/// a card with several links in waits for all of them.</summary>
+public sealed class FlowWire
+{
+    public Guid From { get; set; }
+    public Guid To { get; set; }
+}
+
+/// <summary>Linked actions on a canvas, from Start along wires; branches run at the same time and at least one must
+/// reach a Stop. See <see cref="FlowGraph"/>.</summary>
+public sealed class FlowAction : SliceAction
+{
+    public List<FlowNode> Nodes { get; set; } = new();
+    public List<FlowWire> Wires { get; set; } = new();
+
+    public static FlowAction New() => new()
+    {
+        Nodes =
+        {
+            new FlowNode { Kind = FlowNodeKind.Start, X = 40, Y = 200 },
+            new FlowNode { Kind = FlowNodeKind.Stop, X = 640, Y = 200 },
+        },
+    };
+}
 
 /// <summary>Turns the mouse wheel where the pointer is: a number of notches (one notch is one click of the wheel).</summary>
 public sealed class ScrollStep : MacroStep

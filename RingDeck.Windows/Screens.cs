@@ -28,6 +28,33 @@ public static class Screens
         return hwnd == IntPtr.Zero ? IntPtr.Zero : GetAncestor(hwnd, 2 /* GA_ROOT */);
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
+
+    /// <summary>The whole area of the monitor at a point (taskbar included), in physical pixels.</summary>
+    public static (int X, int Y, int Width, int Height) MonitorBounds(int x, int y)
+    {
+        var monitor = MonitorFromPoint(new POINT { X = x, Y = y }, 2 /* nearest */);
+        var info = new MONITORINFO { Size = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(monitor, ref info)) return (0, 0, 1920, 1080);
+        return (info.Monitor.Left, info.Monitor.Top, info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top);
+    }
+
+    /// <summary>All monitors together, in physical pixels.</summary>
+    public static (int X, int Y, int Width, int Height) VirtualBounds() =>
+        (GetSystemMetrics(76), GetSystemMetrics(77), GetSystemMetrics(78), GetSystemMetrics(79));
+
+    /// <summary>The window in front, without its invisible resize border, in physical pixels; null when there is none.</summary>
+    public static (int X, int Y, int Width, int Height)? ForegroundBounds()
+    {
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return null;
+        var size = System.Runtime.InteropServices.Marshal.SizeOf<RECT>();
+        if (DwmGetWindowAttribute(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, out var r, size) != 0 && !GetWindowRect(hwnd, out r)) return null;
+        return r.Right > r.Left && r.Bottom > r.Top ? (r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top) : null;
+    }
+
     public static ScreenInfo At(int x, int y)
     {
         var monitor = MonitorFromPoint(new POINT { X = x, Y = y }, 2 /* nearest */);

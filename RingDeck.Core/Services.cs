@@ -29,6 +29,8 @@ public interface IClipboard
     void Restore(object? snapshot);
     /// <summary>The picture on the clipboard (a copied image, or a copied image file), or null.</summary>
     ClipImage? GetImage() => null;
+    /// <summary>Takes a screenshot of the area and puts it on the clipboard. Throws when it can't.</summary>
+    void PutScreenshot(ScreenshotArea area) => throw new NotSupportedException("Screenshots are not available here.");
 }
 
 public sealed record ClipImage(byte[] Data, string FileName, string ContentType);

@@ -168,6 +168,7 @@ public partial class App : Application
                     _editor!.SaveShot(prefix + "-ring.png", false);
                     _editor.SaveShot(prefix + "-slice.png", true);
                     await _editor.SaveMacroWindowShot(prefix + "-steps.png");
+                    await _editor.SaveFlowWindowShot(prefix + "-flow.png");
                     if (Config.AiConnections.FirstOrDefault() is { } c) await _editor.SaveConnectionShot(c, prefix + "-connection.png");
                     await _editor.SavePickerShots(prefix);
                 }

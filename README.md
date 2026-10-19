@@ -10,7 +10,7 @@ Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut
 [![RingDeck 0.3.4: rings that branch into a tree, slices that wait before they run, web requests and ring icons](docs/demo.gif)](docs/demo.mp4)
 
 - Any number of rings, each on its own global shortcut (keyboard or mouse button).
-- Slices paste text, play recorded macros (keys, clicks, mouse moves, scrolling), open apps, files and links, or open another ring.
+- Slices paste text, play recorded macros (keys, clicks, mouse moves, scrolling), open apps, files and links, run flows of linked actions, or open another ring.
 - Editor with live preview; settings in `%APPDATA%\RingDeck\config.json`.
 
 ## Use
@@ -34,7 +34,8 @@ Placeholders in pasted and typed text: `{date}`, `{time}`, `{datetime}`, `{clipb
 ## Macros
 
 A slice set to **Macro / workflow** plays a list of steps, top to bottom: key presses, key down and key up,
-clicks, mouse moves, scrolling, typed or pasted text, opening apps and links, focusing a window, and web requests.
+clicks, mouse moves, scrolling, typed or pasted text, opening apps and links, focusing a window, screenshots (to the
+clipboard) and web requests.
 Each pause is a **Wait** row in milliseconds.
 
 - **⏺ Record**: press F9, do the thing in any window, press F9 again. Mouse movement, clicks, scrolling and keys
@@ -46,6 +47,20 @@ Each pause is a **Wait** row in milliseconds.
   or set all the waits at once.
 
 Esc stops a running macro, and any key or button it still holds is let go.
+
+## Flows
+
+A slice set to **Flow** opens a canvas where actions are cards linked by wires, from **Start**:
+
+- Pick cards from the palette (Open, Recorded steps, Type text, Key press, Click, Screenshot, Send to web and more);
+  drag from a card's right dot onto another card to link them. Select a card to edit its steps on the right.
+- A card with several links out starts those branches **at the same time**; a card with several links in waits for
+  all of them. At least one branch must end at a **Stop**; others may simply end.
+- Cards that use the keyboard, mouse or clipboard take turns, so branches never type over each other.
+- For example: open the browser, take a screenshot, then at once play recorded steps in one branch and send the
+  screenshot to Discord or Teams in another.
+
+A failing card stops the whole flow and the notification names it; Esc stops a running flow.
 
 ## AI chat slices
 
