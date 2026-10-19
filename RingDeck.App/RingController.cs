@@ -38,12 +38,13 @@ public sealed class RingController : IDisposable
         _notifier = notifier;
         _session = new RingSession(id => _config().Find(id));
         _input = new InputSender(_hook.IsPhysicallyDown);
-        _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier, focuser: new WindowFocuser(_input),
+        _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier, delay: PreciseDelay.Wait, focuser: new WindowFocuser(_input),
             webhooks: new WebhookClient(), reveal: App.Instance.Secrets.Reveal, selection: ct => SelectionGrabber.GrabAsync(_input, _clipboard, ct), shrink: ImageShrinker.Fit);
         _actions = StartActionThread();
         _hook.Error = App.Log;
         WindowAt(3);                       // depths 0-3 ready before the first ring opens
         _hook.Key = OnKey;
+        _hook.Wheel = (delta, horizontal) => WheelCapture?.Invoke(delta, horizontal) ?? false;
         _hook.Install();
         _foregroundTimer.Tick += (_, _) => CheckForeground();
         _foregroundTimer.Start();
@@ -76,6 +77,8 @@ public sealed class RingController : IDisposable
     }
 
     public Func<int, bool, bool>? Capture { get; set; }
+    /// <summary>While set, gets every mouse wheel turn (delta, horizontal); returns true to swallow it.</summary>
+    public Func<int, bool, bool>? WheelCapture { get; set; }
     /// <summary>The user's own pause switch (tray menu).</summary>
     public bool Paused { get => _userPaused; set { _userPaused = value; _matcher.Paused = _userPaused || _suppressed; } }
 

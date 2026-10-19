@@ -12,7 +12,6 @@ namespace RingDeck.App;
 public partial class EditorWindow
 {
     static readonly string[] ActionNames = { "Nothing", "Paste text", "Macro / workflow", "Open app, file or link", "Open another ring", "AI chat", "Send to a web service (Discord, Slack, phone…)" };
-    MacroRecorder? _recorder;
 
     static int ActionIndex(SliceAction? action) => action switch
     {
@@ -29,7 +28,7 @@ public partial class EditorWindow
 
     void LoadSlicePanel()
     {
-        StopRecording();
+        CloseMacroWindowUnlessFor(_slice);
         slicePanel.Children.Clear();
         if (_slice is not { } slice || _ring is null) return;
         var add = slicePanel.Children;
@@ -232,101 +231,449 @@ public partial class EditorWindow
                 Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
     }
 
+    MacroWindow? _macroWindow;
+
+    /// <summary>The steps changed shape (added, removed, moved): rebuild every view of them.</summary>
+    void RefreshMacro()
+    {
+        _macroWindow?.Rebuild();
+        ShowSlice(_slice);
+    }
+
     void MacroEditor(MacroAction macro)
     {
+        if (_macroWindow is { } open && open.Macro == macro)
+        {
+            // One place to edit at a time: the steps are in their own window.
+            slicePanel.Children.Add(Caption($"Steps ({macro.Steps.Count})"));
+            var bring = new Button { Content = "Show the steps window", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
+            bring.Click += (_, _) => { open.WindowState = WindowState.Normal; open.Activate(); };
+            slicePanel.Children.Add(bring);
+            return;
+        }
+        BuildMacro(slicePanel, macro, popped: false);
+    }
+
+    void PopOutMacro(MacroAction macro)
+    {
+        if (_slice is not { } slice) return;
+        var window = new MacroWindow(this, slice, macro);
+        _macroWindow = window;
+        // Closed by the user: the steps come back into the slice panel. (Closed by the editor, see below.)
+        window.Closed += (_, _) => { if (_macroWindow != window) return; _macroWindow = null; ShowSlice(_slice); };
+        window.Rebuild();
+        window.Show();
+        ShowSlice(_slice);
+    }
+
+    /// <summary>Developer aid (--shot-editor): opens the first macro slice's steps window, saves a picture of it, closes it.</summary>
+    internal async Task SaveMacroWindowShot(string path)
+    {
+        if (_ring?.Slices.FirstOrDefault(s => s.Action is MacroAction) is not { Action: MacroAction macro } slice) return;
+        ShowSlice(slice);
+        PopOutMacro(macro);
+        if (_macroWindow is not { } window) return;
+        await Task.Delay(800);
+        window.UpdateLayout();
+        var root = (FrameworkElement)window.Content;
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth, (int)root.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        var backdrop = new DrawingVisual();
+        using (var dc = backdrop.RenderOpen())
+            dc.DrawRectangle(Theme.Frozen(Theme.IsDark ? Color.FromRgb(0x20, 0x20, 0x20) : Color.FromRgb(0xF3, 0xF3, 0xF3)), null, new Rect(0, 0, root.ActualWidth, root.ActualHeight));
+        bitmap.Render(backdrop);
+        bitmap.Render(root);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using (var file = File.Create(path)) encoder.Save(file);
+        window.Close();
+    }
+
+    /// <summary>Fills the steps window. Building counts as loading, so the new fields filling in are not edits.</summary>
+    internal void FillMacroWindow(MacroWindow window, Panel host)
+    {
+        var was = _loading;
+        _loading = true;
+        try { host.Children.Clear(); BuildMacro(host, window.Macro, popped: true); }
+        finally { _loading = was; }
+    }
+
+    /// <summary>An edit inside the steps window: saved like one in the editor.</summary>
+    internal void EditedInMacroWindow(object sender, RoutedEventArgs e) => OnEdited(sender, e);
+
+    /// <summary>Closes the steps window when the slice it shows is no longer the one being edited.</summary>
+    void CloseMacroWindowUnlessFor(Slice? slice)
+    {
+        if (_macroWindow is not { } open || (slice is not null && slice.Action == open.Macro)) return;
+        _macroWindow = null;           // first, so its Closed handler doesn't rebuild the panel being built now
+        open.Close();
+    }
+
+    /// <summary>The step list with its view switch, total and add buttons, in the slice panel or the steps window
+    /// (<paramref name="popped"/>), which also gets a toolbar for the whole list.</summary>
+    internal void BuildMacro(Panel host, MacroAction macro, bool popped)
+    {
+        var split = Config.Settings.SplitKeyEvents;
+        if (popped) host.Children.Add(MacroToolbar(macro));
         var stepsCaption = Caption("Steps, played top to bottom. If a step fails the rest are skipped. Esc stops a running macro.");
         stepsCaption.TextWrapping = TextWrapping.Wrap;
-        slicePanel.Children.Add(stepsCaption);
-        for (var i = 0; i < macro.Steps.Count; i++) slicePanel.Children.Add(StepRow(macro, i));
+        host.Children.Add(stepsCaption);
+        if (!popped)
+        {
+            var popOut = new Button { Content = "Pop out \u29C9", ToolTip = "Open the steps in their own, bigger window, with Clear all and other tools",
+                HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
+            popOut.Click += (_, _) => PopOutMacro(macro);
+            host.Children.Add(popOut);
+        }
+        var splitBox = new CheckBox { Content = "Show key down and key up separately", IsChecked = split, Margin = new Thickness(0, 4, 0, 4),
+            ToolTip = "Off: a key or mouse button that goes down and straight back up shows as one press. Only the view changes, never what the macro does." };
+        splitBox.Click += (_, _) => { Config.Settings.SplitKeyEvents = splitBox.IsChecked == true; RefreshMacro(); };
+        host.Children.Add(splitBox);
+
+        var total = new TextBlock { Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Right,
+            Foreground = (Brush)Application.Current.Resources["SubtleBrush"] };
+        void UpdateTotal() => total.Text = $"{macro.Steps.Count} steps \u00B7 total \u2248 {MacroView.TotalMs(macro.Steps) / 1000.0:0.0##} s (waits and mouse moves)";
+        var rows = MacroView.Rows(macro.Steps, split);
+        if (rows.Count == 0)
+            host.Children.Add(new TextBlock { Text = "No steps yet. Add some below, or record them.", Margin = new Thickness(0, 8, 0, 0),
+                Foreground = (Brush)Application.Current.Resources["SubtleBrush"] });
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = StepRow(macro, rows, i, UpdateTotal);
+            host.Children.Add(popped ? DraggableRow(row, macro, rows, i) : row);
+        }
+        UpdateTotal();
+        host.Children.Add(total);
 
         var buttons = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-        void AddButton(string text, Func<MacroStep> make)
+        void AddButton(string text, Func<MacroStep> make, string? tip = null)
         {
-            var button = new Button { Content = text, Margin = new Thickness(0, 0, 6, 6) };
-            button.Click += (_, _) => { macro.Steps.Add(make()); ShowSlice(_slice); Touch(); };
+            var button = new Button { Content = text, Margin = new Thickness(0, 0, 6, 6), ToolTip = tip };
+            button.Click += (_, _) => { macro.Steps.Add(make()); RefreshMacro(); Touch(); };
             buttons.Children.Add(button);
         }
-        AddButton("Keys", () => new KeyStep());
+        AddButton("Key press", () => new KeyStep(), "A key or a combination such as Ctrl+C, pressed and let go");
+        if (split)
+        {
+            AddButton("Key down", () => new KeyDownStep(), "Holds a key down until a key up step (or the end of the macro)");
+            AddButton("Key up", () => new KeyUpStep());
+        }
+        AddButton("Click", () => new ClickStep(), "Clicks where the pointer is");
+        if (split)
+        {
+            AddButton("Mouse down", () => new MouseDownStep());
+            AddButton("Mouse up", () => new MouseUpStep());
+        }
+        void RecordButton(string text, string tip, bool movementOnly)
+        {
+            var button = new Button { Content = text, Margin = new Thickness(0, 0, 6, 6), ToolTip = tip };
+            button.Click += (_, _) =>
+            {
+                if (Record(movementOnly) is not { } steps) return;
+                macro.Steps.AddRange(steps);
+                RefreshMacro();
+                Touch();
+            };
+            buttons.Children.Add(button);
+        }
+        RecordButton("Mouse move", "Record a pointer path (F9 starts and stops)", movementOnly: true);
+        AddButton("Scroll", () => new ScrollStep(), "Turns the mouse wheel where the pointer is");
+        AddButton("Wait", () => new DelayStep { Ms = 100 }, "A pause, in milliseconds");
         AddButton("Type text", () => new TextStep());
         AddButton("Paste text", () => new PasteStep());
-        AddButton("Wait", () => new DelayStep { Ms = 300 });
         AddButton("Open", () => new LaunchStep());
         AddButton("Focus window", () => new FocusStep());
         AddButton("Set clipboard", () => new ClipboardStep());
         AddButton("Web request", () => new WebhookStep());
-        var record = new Button { Content = "Record", Margin = new Thickness(0, 0, 6, 6), ToolTip = "Records the keys you press in any window, without their timing" };
-        record.Click += (_, _) =>
+        RecordButton("\u23FA Record", "Record mouse movement, clicks, scrolling and keys in any window, with the time between them (F9 starts and stops)", movementOnly: false);
+        host.Children.Add(buttons);
+    }
+
+    /// <summary>Actions on the whole list, for the steps window.</summary>
+    UIElement MacroToolbar(MacroAction macro)
+    {
+        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        Button Tool(string text, string tip, Action act)
         {
-            if (_recorder is null)
-            {
-                _recorder = new MacroRecorder();
-                record.Content = "Stop recording";
-                _app.Controller.Capture = (vk, down) =>
-                {
-                    if (vk < 0x08) return false;            // mouse buttons always pass, so Stop can be clicked
-                    if (down) _recorder?.OnKeyDown(vk, InputSender.CurrentMods());
-                    // Keys reach the app being recorded. When that "app" is this editor they are swallowed, or
-                    // Space and Enter would press the focused Stop button and Tab would walk the form.
-                    return IsActive && !RingDeck.Core.KeyNames.IsModifier(vk);
-                };
-            }
-            else
-            {
-                var steps = _recorder.Steps;
-                StopRecording();
-                macro.Steps.AddRange(steps);
-                ShowSlice(_slice);
-                Touch();
-            }
+            var button = new Button { Content = text, ToolTip = tip, Margin = new Thickness(0, 0, 6, 6) };
+            button.Click += (_, _) => act();
+            bar.Children.Add(button);
+            return button;
+        }
+        Tool("\u23FA Record", "Record steps and add them at the end (F9 starts and stops)", () =>
+        {
+            if (Record(movementOnly: false) is not { } steps) return;
+            macro.Steps.AddRange(steps);
+            RefreshMacro();
+            Touch();
+        });
+        Tool("Clear all", "Remove every step", () =>
+        {
+            if (macro.Steps.Count == 0) return;
+            if (MessageBox.Show(_macroWindow ?? (Window)this, $"Remove all {macro.Steps.Count} steps?", "RingDeck",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            macro.Steps.Clear();
+            RefreshMacro();
+            Touch();
+        }).IsEnabled = macro.Steps.Count > 0;
+        var waits = macro.Steps.Count(s => s is DelayStep);
+        Tool("Remove all waits", "Remove every wait, so the steps run one right after another", () =>
+        {
+            MacroView.RemoveWaits(macro.Steps);
+            RefreshMacro();
+            Touch();
+        }).IsEnabled = waits > 0;
+        var setPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 6) };
+        var ms = new TextBox { Width = 64, Text = "100", ToolTip = "Milliseconds" };
+        var apply = new Button { Content = "Set all waits", ToolTip = "Give every wait this length", Margin = new Thickness(0, 0, 6, 0), IsEnabled = waits > 0 };
+        apply.Click += (_, _) =>
+        {
+            if (!int.TryParse(ms.Text.Trim(), out var value) || value < 0) { ms.Focus(); ms.SelectAll(); return; }
+            MacroView.SetWaits(macro.Steps, value);
+            RefreshMacro();
+            Touch();
         };
-        buttons.Children.Add(record);
-        slicePanel.Children.Add(buttons);
+        setPanel.Children.Add(apply);
+        setPanel.Children.Add(new TextBlock { Text = "to", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+        setPanel.Children.Add(ms);
+        setPanel.Children.Add(new TextBlock { Text = "ms", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+        bar.Children.Add(setPanel);
+        return bar;
     }
 
-    void StopRecording()
+    /// <summary>Opens the F9 recorder; returns the recorded steps, or null when cancelled or nothing was recorded.</summary>
+    List<MacroStep>? Record(bool movementOnly)
     {
-        if (_recorder is null) return;
-        _recorder = null;
-        _app.Controller.Capture = null;
+        var window = new RecorderWindow(movementOnly) { Owner = (Window?)_macroWindow ?? this };
+        return window.ShowDialog() == true && window.Result is { Count: > 0 } steps ? steps : null;
     }
 
-    UIElement StepRow(MacroAction macro, int index)
+    static string StepLabel(MacroStep step) => step switch
     {
-        var step = macro.Steps[index];
+        KeyStep => "Key press", TextStep => "Type", PasteStep => "Paste", DelayStep => "Wait",
+        LaunchStep => "Open", FocusStep => "Focus", ClipboardStep => "Clipboard", WebhookStep => "Send",
+        KeyDownStep => "Key down", KeyUpStep => "Key up", ClickStep => "Click", MouseDownStep => "Mouse down",
+        MouseUpStep => "Mouse up", MouseMoveStep => "Mouse move", ScrollStep => "Scroll", _ => "",
+    };
+
+    UIElement StepRow(MacroAction macro, IReadOnlyList<MacroRow> rows, int index, Action updateTotal)
+    {
+        var steps = macro.Steps;
+        var r = rows[index];
+        var step = steps[r.Start];
         var row = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
         void Tool(string text, string tip, Action act, bool enabled = true)
         {
             var button = new Button { Content = text, ToolTip = tip, Width = 30, Padding = new Thickness(0), Margin = new Thickness(4, 0, 0, 0), IsEnabled = enabled };
-            button.Click += (_, _) => { act(); ShowSlice(_slice); Touch(); };
+            button.Click += (_, _) => { act(); RefreshMacro(); Touch(); };
             DockPanel.SetDock(button, Dock.Right);
             row.Children.Add(button);
         }
-        Tool("\u2715", "Remove", () => macro.Steps.RemoveAt(index));
-        Tool("\u2193", "Move down", () => { macro.Steps.RemoveAt(index); macro.Steps.Insert(index + 1, step); }, index < macro.Steps.Count - 1);
-        Tool("\u2191", "Move up", () => { macro.Steps.RemoveAt(index); macro.Steps.Insert(index - 1, step); }, index > 0);
-        var label = new TextBlock { Width = 68, VerticalAlignment = VerticalAlignment.Center,
-            Text = step switch
-            {
-                KeyStep => "Keys", TextStep => "Type", PasteStep => "Paste", DelayStep => "Wait (ms)",
-                LaunchStep => "Open", FocusStep => "Focus", ClipboardStep => "Clipboard", WebhookStep => "Send", _ => "",
-            } };
+        Tool("\u2715", "Remove", () => MacroView.Remove(steps, r));
+        Tool("\u2193", "Move down", () => MacroView.Move(steps, rows, index, +1), index < rows.Count - 1);
+        Tool("\u2191", "Move up", () => MacroView.Move(steps, rows, index, -1), index > 0);
+        var label = new TextBlock { Width = 84, VerticalAlignment = VerticalAlignment.Center,
+            Text = r.Kind switch { MacroRowKind.KeyPress => "Key press", MacroRowKind.ButtonPress => "Click", _ => StepLabel(step) } };
         DockPanel.SetDock(label, Dock.Left);
         row.Children.Add(label);
-        row.Children.Add(step switch
+
+        if (step is DelayStep wait && r.Kind == MacroRowKind.Step)
         {
-            KeyStep key => Bound(new ShortcutBox { AllowBare = true }, ShortcutBox.ValueProperty, key, nameof(KeyStep.Combo)),
-            TextStep text => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap }, TextBox.TextProperty, text, nameof(TextStep.Text)),
-            DelayStep wait => Bound(new TextBox { ToolTip = "Milliseconds" }, TextBox.TextProperty, wait, nameof(DelayStep.Ms)),
-            PasteStep paste => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, ToolTip = "Pasted through the clipboard. Placeholders like {date} work." },
-                TextBox.TextProperty, paste, nameof(PasteStep.Text)),
-            ClipboardStep clip => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, ToolTip = "Put on the clipboard and left there" },
-                TextBox.TextProperty, clip, nameof(ClipboardStep.Text)),
-            LaunchStep launch => OpenStepEditor(launch),
-            FocusStep focus => FocusStepEditor(focus),
-            WebhookStep hook => WebhookStepEditor(hook),
-            _ => new TextBlock(),
+            // Waits are lighter and indented, so the actions stand out between them.
+            row.Margin = new Thickness(18, 2, 0, 0);
+            label.Width = 66;
+            label.Foreground = (Brush)Application.Current.Resources["SubtleBrush"];
+            row.Children.Add(MsBox(wait, updateTotal));
+            return row;
+        }
+        row.Children.Add(r.Kind switch
+        {
+            MacroRowKind.KeyPress => PressEditor(KeyField((KeyDownStep)step, (KeyUpStep)steps[r.Start + r.Count - 1]), r.Hold(steps), updateTotal),
+            MacroRowKind.ButtonPress => PressEditor(ButtonField(((MouseDownStep)step).Button,
+                b => { ((MouseDownStep)step).Button = b; ((MouseUpStep)steps[r.Start + r.Count - 1]).Button = b; }), r.Hold(steps), updateTotal),
+            _ => step switch
+            {
+                KeyStep key => Bound(new ShortcutBox { AllowBare = true }, ShortcutBox.ValueProperty, key, nameof(KeyStep.Combo)),
+                KeyDownStep down => Bound(new ShortcutBox { SingleKey = true }, ShortcutBox.ValueProperty, down, nameof(KeyDownStep.Key)),
+                KeyUpStep up => Bound(new ShortcutBox { SingleKey = true }, ShortcutBox.ValueProperty, up, nameof(KeyUpStep.Key)),
+                ClickStep click => ButtonField(click.Button, b => click.Button = b),
+                MouseDownStep md => ButtonField(md.Button, b => md.Button = b),
+                MouseUpStep mu => ButtonField(mu.Button, b => mu.Button = b),
+                MouseMoveStep move => MouseMoveEditor(macro, move, updateTotal),
+                ScrollStep scroll => ScrollEditor(scroll),
+                TextStep text => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap }, TextBox.TextProperty, text, nameof(TextStep.Text)),
+                PasteStep paste => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, ToolTip = "Pasted through the clipboard. Placeholders like {date} work." },
+                    TextBox.TextProperty, paste, nameof(PasteStep.Text)),
+                ClipboardStep clip => Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, ToolTip = "Put on the clipboard and left there" },
+                    TextBox.TextProperty, clip, nameof(ClipboardStep.Text)),
+                LaunchStep launch => OpenStepEditor(launch),
+                FocusStep focus => FocusStepEditor(focus),
+                WebhookStep hook => WebhookStepEditor(hook),
+                _ => new TextBlock(),
+            },
         });
         return row;
+    }
+
+    const string RowFormat = "RingDeck.MacroRow";
+
+    /// <summary>A row of the steps window with a grip to drag it by. While another row is dragged over it, a line
+    /// above or below shows where that row will land.</summary>
+    UIElement DraggableRow(UIElement content, MacroAction macro, IReadOnlyList<MacroRow> rows, int index)
+    {
+        var line = Theme.Frozen(Theme.Accent);
+        var frame = new Border { BorderThickness = new Thickness(0, 2, 0, 2), BorderBrush = Brushes.Transparent, AllowDrop = true };
+        var grip = new TextBlock
+        {
+            Text = "\u283F", FontSize = 16, Width = 22, VerticalAlignment = VerticalAlignment.Center, Cursor = System.Windows.Input.Cursors.SizeNS,
+            Foreground = (Brush)Application.Current.Resources["SubtleBrush"], Background = Brushes.Transparent, ToolTip = "Drag to move this step",
+        };
+        Point? pressed = null;
+        grip.MouseLeftButtonDown += (_, e) => { pressed = e.GetPosition(grip); e.Handled = true; };
+        grip.MouseLeftButtonUp += (_, _) => pressed = null;
+        grip.MouseMove += (_, e) =>
+        {
+            if (pressed is not { } start || e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+            var now = e.GetPosition(grip);
+            if (Math.Abs(now.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance
+                && Math.Abs(now.X - start.X) < SystemParameters.MinimumHorizontalDragDistance) return;
+            pressed = null;
+            frame.Opacity = 0.5;
+            DragDrop.DoDragDrop(grip, new DataObject(RowFormat, index), DragDropEffects.Move);
+            frame.Opacity = 1;
+        };
+
+        bool Above(DragEventArgs e) => e.GetPosition(frame).Y < frame.ActualHeight / 2;
+        void Show(Thickness where) => (frame.BorderBrush, frame.BorderThickness) = (where == default ? Brushes.Transparent : line, where == default ? new Thickness(0, 2, 0, 2) : where);
+        // Preview (tunnelling) events, so text boxes inside the row, which take drops of their own, never see these.
+        frame.PreviewDragOver += (_, e) =>
+        {
+            if (!e.Data.GetDataPresent(RowFormat)) return;           // not a step: let the field handle it
+            e.Handled = true;
+            e.Effects = DragDropEffects.Move;
+            Show(Above(e) ? new Thickness(0, 2, 0, 0) : new Thickness(0, 0, 0, 2));
+        };
+        frame.DragLeave += (_, _) => Show(default);
+        frame.PreviewDrop += (_, e) =>
+        {
+            Show(default);
+            if (e.Data.GetData(RowFormat) is not int from) return;
+            e.Handled = true;
+            MacroView.MoveTo(macro.Steps, rows, from, Above(e) ? index : index + 1);
+            // Rebuild once the drag has fully finished; the dragged row is still on screen until then.
+            Dispatcher.BeginInvoke(() => { RefreshMacro(); Touch(); });
+        };
+
+        var panel = new DockPanel();
+        DockPanel.SetDock(grip, Dock.Left);
+        panel.Children.Add(grip);
+        panel.Children.Add(content);
+        frame.Child = panel;
+        return frame;
+    }
+
+    /// <summary>Milliseconds box with "ms" after it; keeps the total up to date while typing.</summary>
+    static UIElement MsBox(DelayStep wait, Action updateTotal)
+    {
+        var panel = new DockPanel();
+        var unit = new TextBlock { Text = "ms", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0),
+            Foreground = (Brush)Application.Current.Resources["SubtleBrush"] };
+        DockPanel.SetDock(unit, Dock.Right);
+        var box = Bound(new TextBox { Width = 80, HorizontalAlignment = HorizontalAlignment.Left, ToolTip = "Milliseconds (1000 = 1 second)" },
+            TextBox.TextProperty, wait, nameof(DelayStep.Ms));
+        box.TextChanged += (_, _) => updateTotal();
+        panel.Children.Add(unit);
+        panel.Children.Add(box);
+        return panel;
+    }
+
+    /// <summary>A joined press: its key or button, and how long it is held when the recording kept that.</summary>
+    static UIElement PressEditor(UIElement field, DelayStep? hold, Action updateTotal)
+    {
+        if (hold is null) return field;
+        // Two lines, so the key or button keeps its full width even in the narrow slice panel.
+        var held = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+        held.Children.Add(new TextBlock { Text = "held", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+            Foreground = (Brush)Application.Current.Resources["SubtleBrush"] });
+        var box = Bound(new TextBox { Width = 64, ToolTip = "How long it is held down, in milliseconds" }, TextBox.TextProperty, hold, nameof(DelayStep.Ms));
+        box.TextChanged += (_, _) => updateTotal();
+        held.Children.Add(box);
+        held.Children.Add(new TextBlock { Text = "ms", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0),
+            Foreground = (Brush)Application.Current.Resources["SubtleBrush"] });
+        var panel = new StackPanel();
+        panel.Children.Add(field);
+        panel.Children.Add(held);
+        return panel;
+    }
+
+    /// <summary>The key of a joined press: changing it changes both the down and the up step.</summary>
+    static UIElement KeyField(KeyDownStep down, KeyUpStep up)
+    {
+        var box = Bound(new ShortcutBox { SingleKey = true }, ShortcutBox.ValueProperty, down, nameof(KeyDownStep.Key));
+        box.TextChanged += (_, _) => up.Key = box.Value;
+        return box;
+    }
+
+    static readonly string[] ButtonNames = { "Left", "Right", "Middle" };
+    static readonly string[] ScrollNames = { "Up", "Down", "Left", "Right" };
+
+    /// <summary>Which way, and how many notches of the wheel.</summary>
+    static UIElement ScrollEditor(ScrollStep scroll)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        var direction = new ComboBox { ItemsSource = ScrollNames, SelectedIndex = (int)scroll.Direction, Width = 100 };
+        direction.SelectionChanged += (_, _) => { if (direction.SelectedIndex >= 0) scroll.Direction = (ScrollDirection)direction.SelectedIndex; };
+        var count = Bound(new TextBox { Width = 56, Margin = new Thickness(6, 0, 0, 0), ToolTip = "How many clicks of the wheel" },
+            TextBox.TextProperty, scroll, nameof(ScrollStep.Notches));
+        var unit = new TextBlock { Text = "notches", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0),
+            Foreground = (Brush)Application.Current.Resources["SubtleBrush"] };
+        panel.Children.Add(direction);
+        panel.Children.Add(count);
+        panel.Children.Add(unit);
+        return panel;
+    }
+
+    static UIElement ButtonField(ClickButton value, Action<ClickButton> set)
+    {
+        var combo = new ComboBox { ItemsSource = ButtonNames, SelectedIndex = (int)value, ToolTip = "Mouse button" };
+        combo.SelectionChanged += (_, _) => { if (combo.SelectedIndex >= 0) set((ClickButton)combo.SelectedIndex); };
+        return combo;
+    }
+
+    /// <summary>Two lines: what was recorded; then the playback speed and a button to record it again.</summary>
+    UIElement MouseMoveEditor(MacroAction macro, MouseMoveStep move, Action updateTotal)
+    {
+        var record = new Button { Content = "\u23FA", Width = 30, Padding = new Thickness(0), Margin = new Thickness(6, 0, 0, 0), ToolTip = "Record it again (F9 starts and stops)" };
+        record.Click += (_, _) =>
+        {
+            // What is recorded takes this step's place (a path, or more if clicks and keys were recorded too).
+            if (Record(movementOnly: true) is not { } steps) return;
+            var at = macro.Steps.IndexOf(move);
+            if (at < 0) return;
+            macro.Steps.RemoveAt(at);
+            macro.Steps.InsertRange(at, steps);
+            RefreshMacro();
+            Touch();
+        };
+        var speedText = new TextBlock { Width = 36, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right };
+        var slider = new Slider { Minimum = MousePath.MinSpeed, Maximum = MousePath.MaxSpeed, TickFrequency = 0.25, IsSnapToTickEnabled = true,
+            Value = MousePath.ClampSpeed(move.Speed), VerticalAlignment = VerticalAlignment.Center, ToolTip = "Speed: play the path up to 3 times faster than recorded" };
+        void ShowSpeed() => speedText.Text = $"\u00D7{slider.Value:0.##}";
+        slider.ValueChanged += (_, _) => { move.Speed = slider.Value; ShowSpeed(); updateTotal(); };
+        ShowSpeed();
+        var top = new DockPanel();
+        DockPanel.SetDock(record, Dock.Right);
+        top.Children.Add(record);
+        top.Children.Add(new TextBlock { Text = MousePath.Describe(move.Path), VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = MousePath.Describe(move.Path) });
+        var speed = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
+        DockPanel.SetDock(speedText, Dock.Right);
+        speed.Children.Add(speedText);
+        speed.Children.Add(slider);
+
+        var panel = new StackPanel();
+        panel.Children.Add(top);
+        panel.Children.Add(speed);
+        return panel;
     }
 
     // ----- AI chat -----

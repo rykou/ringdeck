@@ -19,6 +19,8 @@ public sealed class InputHook : IDisposable
 
     /// <summary>(virtual key, is down) => true to swallow the event.</summary>
     public Func<int, bool, bool>? Key { get; set; }
+    /// <summary>(wheel delta, horizontal) => true to swallow the event. 120 per notch; positive is up, or right.</summary>
+    public Func<int, bool, bool>? Wheel { get; set; }
     /// <summary>Receives exceptions thrown by the Key callback (they must not escape into the hook chain).</summary>
     public Action<Exception>? Error { get; set; }
 
@@ -62,6 +64,15 @@ public sealed class InputHook : IDisposable
         if (code >= 0)
         {
             var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+            if ((int)wParam is 0x20A or 0x20E)          // WM_MOUSEWHEEL, WM_MOUSEHWHEEL
+            {
+                if (Wheel is { } wheel && (info.Flags & LLMHF_INJECTED) == 0)
+                {
+                    try { if (wheel((short)(info.MouseData >> 16), (int)wParam == 0x20E)) return 1; }
+                    catch (Exception ex) { Error?.Invoke(ex); }
+                }
+                return CallNextHookEx(_mouse, code, wParam, lParam);
+            }
             var x = (info.MouseData >> 16) == 1 ? 0x05 : 0x06;
             (int vk, bool down) = (int)wParam switch
             {

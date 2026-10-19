@@ -135,7 +135,7 @@ public partial class EditorWindow : Window
         InitializeComponent();
         preview.FindRing = id => Config.Find(id);
         _saveTimer.Tick += (_, _) => Flush();
-        Closing += (_, _) => { StopRecording(); _app.Controller.Capture = null; Flush(); };
+        Closing += (_, _) => { _app.Controller.Capture = null; Flush(); };
         settingsPanel.DataContext = Config.Settings;
         excludedBox.Text = string.Join(Environment.NewLine, Config.Settings.ExcludedApps);
         connectionList.ItemsSource = Config.AiConnections;

@@ -98,6 +98,42 @@ public sealed class InputSender : IInputSender
         Send(inputs);
     }
 
+    public void SendKey(int vk, bool up)
+    {
+        if (vk < 0x08) throw new InvalidOperationException("Mouse buttons cannot be used as keys.");
+        Send(new List<INPUT> { Key(vk, up) });
+    }
+
+    public void SendMouseButton(ClickButton button, bool up)
+    {
+        uint flags = button switch
+        {
+            ClickButton.Right => up ? 0x0010u : 0x0008u,
+            ClickButton.Middle => up ? 0x0040u : 0x0020u,
+            _ => up ? 0x0004u : 0x0002u,
+        };
+        var input = new INPUT { Type = 0 };
+        input.U.Mouse = new MOUSEINPUT { Flags = flags };
+        Send(new List<INPUT> { input });
+    }
+
+    public void MoveMouse(int x, int y) => Screens.MoveCursor(x, y);
+
+    public void Scroll(ScrollDirection direction, int notches)
+    {
+        const uint Wheel = 0x0800, HWheel = 0x1000;
+        var horizontal = direction is ScrollDirection.Left or ScrollDirection.Right;
+        var delta = direction is ScrollDirection.Up or ScrollDirection.Right ? 120 : -120;
+        var inputs = new List<INPUT>();
+        for (var i = 0; i < notches; i++)
+        {
+            var input = new INPUT { Type = 0 };
+            input.U.Mouse = new MOUSEINPUT { MouseData = unchecked((uint)delta), Flags = horizontal ? HWheel : Wheel };
+            inputs.Add(input);
+        }
+        Send(inputs);
+    }
+
     static bool IsExtended(int vk) => vk is (>= 0x21 and <= 0x28) or 0x2D or 0x2E or 0x5B or 0x5C or 0x5D or 0xA3 or 0xA5 or 0x6F;
 
     static INPUT Key(int vk, bool up)

@@ -34,8 +34,24 @@ public sealed class ShortcutBox : TextBox
     /// <summary>Allow a key with no modifier (used for macro steps such as Enter).</summary>
     public bool AllowBare { get; set; }
 
+    /// <summary>One key on its own, modifiers included (for macro key down / key up steps). Esc cancels.</summary>
+    public bool SingleKey
+    {
+        get => _singleKey;
+        set { _singleKey = value; if (value) ToolTip = "Click, then press one key. Shift, Ctrl, Alt and Win work too. Esc cancels."; }
+    }
+    bool _singleKey;
+
     bool OnKey(int vk, bool down)
     {
+        if (SingleKey)
+        {
+            if (vk < 0x08) return false;                                    // mouse buttons: let clicks move focus away
+            if (!down) return true;
+            if (vk != 0x1B) Value = KeyNames.NameOf(vk);
+            Dispatcher.BeginInvoke(Keyboard.ClearFocus);
+            return true;
+        }
         if (vk is 0x01 or 0x02 || KeyNames.IsModifier(vk)) return false;    // let clicks move focus away
         if (!down) return true;
         var mods = InputSender.CurrentMods();

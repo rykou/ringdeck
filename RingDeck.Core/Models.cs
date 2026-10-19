@@ -41,6 +41,8 @@ public sealed class GlobalSettings
     public bool DisableInFullscreen { get; set; } = true;
     /// <summary>Programs (exe names) in which ring shortcuts are always ignored.</summary>
     public List<string> ExcludedApps { get; set; } = new();
+    /// <summary>Macro editor: show key and mouse button presses as separate "down" and "up" rows.</summary>
+    public bool SplitKeyEvents { get; set; }
 }
 
 public sealed class Ring
@@ -119,6 +121,13 @@ public sealed class NestedRingAction : SliceAction
 [JsonDerivedType(typeof(FocusStep), "focus")]
 [JsonDerivedType(typeof(ClipboardStep), "clipboard")]
 [JsonDerivedType(typeof(WebhookStep), "webhook")]
+[JsonDerivedType(typeof(KeyDownStep), "keydown")]
+[JsonDerivedType(typeof(KeyUpStep), "keyup")]
+[JsonDerivedType(typeof(ClickStep), "click")]
+[JsonDerivedType(typeof(MouseDownStep), "mousedown")]
+[JsonDerivedType(typeof(MouseUpStep), "mouseup")]
+[JsonDerivedType(typeof(MouseMoveStep), "move")]
+[JsonDerivedType(typeof(ScrollStep), "scroll")]
 public abstract class MacroStep { }
 
 public sealed class KeyStep : MacroStep { public string Combo { get; set; } = ""; }
@@ -134,6 +143,33 @@ public sealed class FocusStep : MacroStep { public string Program { get; set; } 
 public sealed class ClipboardStep : MacroStep { public string Text { get; set; } = ""; }
 /// <summary>Sends a message (and optionally the clipboard image) to a web service.</summary>
 public sealed class WebhookStep : MacroStep { public WebRequest Request { get; set; } = new(); }
+
+public enum ClickButton { Left, Right, Middle }
+
+public enum ScrollDirection { Up, Down, Left, Right }
+
+/// <summary>Turns the mouse wheel where the pointer is: a number of notches (one notch is one click of the wheel).</summary>
+public sealed class ScrollStep : MacroStep
+{
+    public ScrollDirection Direction { get; set; } = ScrollDirection.Down;
+    public int Notches { get; set; } = 1;
+}
+
+/// <summary>Presses a key and keeps it down until a matching <see cref="KeyUpStep"/> (or the end of the macro).</summary>
+public sealed class KeyDownStep : MacroStep { public string Key { get; set; } = ""; }
+public sealed class KeyUpStep : MacroStep { public string Key { get; set; } = ""; }
+/// <summary>Clicks a mouse button where the pointer is.</summary>
+public sealed class ClickStep : MacroStep { public ClickButton Button { get; set; } }
+public sealed class MouseDownStep : MacroStep { public ClickButton Button { get; set; } }
+public sealed class MouseUpStep : MacroStep { public ClickButton Button { get; set; } }
+/// <summary>Moves the pointer along a recorded path (screen pixels, with timing; see <see cref="MousePath"/>).
+/// A path of one point is a jump.</summary>
+public sealed class MouseMoveStep : MacroStep
+{
+    public string Path { get; set; } = "";
+    /// <summary>Playback speed: 1 as recorded, up to 3 times faster.</summary>
+    public double Speed { get; set; } = 1;
+}
 
 /// <summary>Sends a message (and optionally the clipboard image) to a web service: a chat channel, a phone
 /// notification, a home automation or any web address.</summary>

@@ -34,6 +34,10 @@ public class WebhookTests
         public void RestoreModifiers() { }
         public void SendCombo(Shortcut combo) { }
         public void SendText(string text) { }
+        public void SendKey(int vk, bool up) { }
+        public void SendMouseButton(ClickButton button, bool up) { }
+        public void MoveMouse(int x, int y) { }
+        public void Scroll(ScrollDirection direction, int notches) { }
         public string? GetText() => Clip;
         public bool TrySetText(string text) { Clip = text; return true; }
         public object? Capture() => Clip;

@@ -10,6 +10,14 @@ public interface IInputSender
     void RestoreModifiers();
     void SendCombo(Shortcut combo);
     void SendText(string text);
+    /// <summary>Presses (up: false) or lets go of (up: true) one key.</summary>
+    void SendKey(int vk, bool up);
+    /// <summary>Presses or lets go of a mouse button where the pointer is.</summary>
+    void SendMouseButton(ClickButton button, bool up);
+    /// <summary>Turns the mouse wheel one notch at a time where the pointer is.</summary>
+    void Scroll(ScrollDirection direction, int notches);
+    /// <summary>Puts the pointer at a screen position (physical pixels).</summary>
+    void MoveMouse(int x, int y);
 }
 
 public interface IClipboard

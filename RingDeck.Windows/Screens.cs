@@ -18,6 +18,16 @@ public static class Screens
 
     public static (int X, int Y) Cursor() => GetCursorPos(out var p) ? (p.X, p.Y) : (0, 0);
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT point);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+    /// <summary>The top-level window actually showing at a screen point (physical pixels): the one on top there.</summary>
+    public static IntPtr TopWindowAt(int x, int y)
+    {
+        var hwnd = WindowFromPoint(new POINT { X = x, Y = y });
+        return hwnd == IntPtr.Zero ? IntPtr.Zero : GetAncestor(hwnd, 2 /* GA_ROOT */);
+    }
+
     public static ScreenInfo At(int x, int y)
     {
         var monitor = MonitorFromPoint(new POINT { X = x, Y = y }, 2 /* nearest */);

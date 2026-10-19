@@ -10,7 +10,7 @@ Radial rings of macros, text snippets and shortcuts for Windows. Hold a shortcut
 [![RingDeck 0.3.4: rings that branch into a tree, slices that wait before they run, web requests and ring icons](docs/demo.gif)](docs/demo.mp4)
 
 - Any number of rings, each on its own global shortcut (keyboard or mouse button).
-- Slices paste text, play keystroke macros, open apps, files and links, or open another ring.
+- Slices paste text, play recorded macros (keys, clicks, mouse moves, scrolling), open apps, files and links, or open another ring.
 - Editor with live preview; settings in `%APPDATA%\RingDeck\config.json`.
 
 ## Use
@@ -30,6 +30,22 @@ that ring. Rings come in five styles (Settings → Ring style, or per ring): Cla
 
 Placeholders in pasted and typed text: `{date}`, `{time}`, `{datetime}`, `{clipboard}`, with optional formats such as
 `{date:yyyy-MM-dd}`. Type `{{` for a literal brace.
+
+## Macros
+
+A slice set to **Macro / workflow** plays a list of steps, top to bottom: key presses, key down and key up,
+clicks, mouse moves, scrolling, typed or pasted text, opening apps and links, focusing a window, and web requests.
+Each pause is a **Wait** row in milliseconds.
+
+- **⏺ Record**: press F9, do the thing in any window, press F9 again. Mouse movement, clicks, scrolling and keys
+  are recorded with the real time between them; while recording, only a small red circle shows in the bottom
+  left corner (click it to stop). Esc cancels.
+- **Mouse move** steps follow the recorded path; a speed slider plays it up to 3 times faster.
+- **Show key down and key up separately** (off by default) splits each press into its down and up rows.
+- **Pop out** opens the steps in their own window, where you can drag them into order, clear them all, or remove
+  or set all the waits at once.
+
+Esc stops a running macro, and any key or button it still holds is let go.
 
 ## AI chat slices
 
@@ -69,6 +85,8 @@ never included when you export rings, since anyone with a webhook URL can post t
 - Windows blocks input to programs running as administrator; RingDeck shows a notification instead.
 - Emoji used as icons are drawn in one colour.
 - Exported rings do not include image icons.
+- Mouse moves and clicks in macros go to fixed places on the screen: if a window moves, record those steps again.
+  Some games ignore input sent this way.
 - The MSI on GitHub is not code-signed, so SmartScreen warns on first run. The Microsoft Store version is
   signed by Microsoft and installs without a warning.
 

@@ -233,8 +233,8 @@ public partial class EditorWindow
         var edit = new Button { Content = "Set up…", Margin = new Thickness(4, 0, 0, 0) };
         edit.Click += (_, _) =>
         {
-            new WebhookWindow(step.Request) { Owner = this }.ShowDialog();
-            ShowSlice(_slice);
+            new WebhookWindow(step.Request) { Owner = (Window?)_macroWindow ?? this }.ShowDialog();
+            RefreshMacro();
             Touch();
         };
         DockPanel.SetDock(edit, Dock.Right);

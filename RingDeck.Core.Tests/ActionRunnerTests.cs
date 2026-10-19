@@ -20,6 +20,10 @@ public class ActionRunnerTests
         public void RestoreModifiers() => Log.Add("restore-mods");
         public void SendCombo(Shortcut combo) => Log.Add("combo " + combo);
         public void SendText(string text) => Log.Add("text " + text);
+        public void SendKey(int vk, bool up) => Log.Add((up ? "up " : "down ") + KeyNames.NameOf(vk));
+        public void SendMouseButton(ClickButton button, bool up) => Log.Add((up ? "mouseup " : "mousedown ") + button);
+        public void MoveMouse(int x, int y) => Log.Add($"move {x},{y}");
+        public void Scroll(ScrollDirection direction, int notches) => Log.Add($"scroll {direction} {notches}");
         public string? GetText() => Clip;
         public bool TrySetText(string text) { if (SetFailures-- > 0) return false; Clip = text; Log.Add("set " + text); return true; }
         public object? Capture() => Clip;

@@ -66,6 +66,10 @@ public static class KeyNames
             ("NumpadDivide", 0x6F),
             ("Semicolon", 0xBA), ("Plus", 0xBB), ("Comma", 0xBC), ("Minus", 0xBD), ("Period", 0xBE), ("Slash", 0xBF),
             ("Backquote", 0xC0), ("LeftBracket", 0xDB), ("Backslash", 0xDC), ("RightBracket", 0xDD), ("Quote", 0xDE),
+            // Modifiers as keys of their own, for macro key down / key up steps. In a shortcut such as
+            // "Ctrl+S" the names are read as modifiers first, so these don't change how shortcuts parse.
+            ("Shift", 0xA0), ("RightShift", 0xA1), ("Ctrl", 0xA2), ("RightCtrl", 0xA3), ("Alt", 0xA4), ("RightAlt", 0xA5),
+            ("Win", 0x5B), ("RightWin", 0x5C),
         };
         foreach (var (name, vk) in named) Add(name, vk);
         ByName["Escape"] = 0x1B;

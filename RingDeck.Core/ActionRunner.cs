@@ -3,7 +3,8 @@ namespace RingDeck.Core;
 /// <summary>Runs a slice's action against the focused window. Never throws: failures are reported to the notifier.</summary>
 public sealed class ActionRunner
 {
-    const int ClipboardRetryMs = 50, ClipboardGiveUpMs = 500, RestoreAfterMs = 250, StepGapMs = 10, MaxDelayMs = 60_000, FocusSettleMs = 150;
+    const int ClipboardRetryMs = 50, ClipboardGiveUpMs = 500, RestoreAfterMs = 250, StepGapMs = 10, FocusSettleMs = 150;
+    public const int MaxDelayMs = 60_000, MaxScrollNotches = 100;
     static readonly Shortcut PasteCombo = new(Mods.Ctrl, 0x56);
 
     readonly IInputSender _input;
@@ -17,15 +18,20 @@ public sealed class ActionRunner
     readonly Func<string, string> _reveal;
     readonly Func<CancellationToken, Task<string?>>? _selection;
     readonly Func<ClipImage, int, ClipImage?>? _shrink;
+    readonly Func<long> _clock;
+    /// <summary>Keys and mouse buttons a running macro pressed and has not let go yet.</summary>
+    readonly List<int> _heldKeys = new();
+    readonly List<ClickButton> _heldButtons = new();
 
     /// <param name="webhooks">Sends webhook slices and steps; without it they report that they can't run.</param>
     /// <param name="reveal">Decrypts the stored webhook addresses and tokens.</param>
     /// <param name="selection">Reads the text selected in the focused app, for {selection}.</param>
     /// <param name="shrink">Makes a picture fit in a number of bytes (smaller JPEG), or returns null; for Teams.</param>
+    /// <param name="clockMs">A millisecond clock, for playing recorded mouse paths in time.</param>
     public ActionRunner(IInputSender input, IClipboard clipboard, ILauncher launcher, INotifier notifier,
         Func<DateTime>? now = null, Func<int, CancellationToken, Task>? delay = null, IWindowFocuser? focuser = null,
         WebhookClient? webhooks = null, Func<string, string>? reveal = null, Func<CancellationToken, Task<string?>>? selection = null,
-        Func<ClipImage, int, ClipImage?>? shrink = null)
+        Func<ClipImage, int, ClipImage?>? shrink = null, Func<long>? clockMs = null)
     {
         (_input, _clipboard, _launcher, _notifier) = (input, clipboard, launcher, notifier);
         _now = now ?? (() => DateTime.Now);
@@ -35,6 +41,7 @@ public sealed class ActionRunner
         _reveal = reveal ?? (s => s);
         _selection = selection;
         _shrink = shrink;
+        _clock = clockMs ?? (() => System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency);
     }
 
     public async Task RunAsync(Slice slice, CancellationToken ct)
@@ -119,10 +126,53 @@ public sealed class ActionRunner
                 {
                     throw new InvalidOperationException($"Step {i + 1} ({StepName(step)}): {ex.Message}", ex);
                 }
+                // A short gap lets the app keep up; when a wait comes next, its own milliseconds are the gap.
+                if (i + 1 < macro.Steps.Count && macro.Steps[i + 1] is DelayStep) continue;
                 await _delay(StepGapMs, ct);
             }
         }
-        finally { _input.RestoreModifiers(); }
+        finally
+        {
+            ReleaseHeld();
+            _input.RestoreModifiers();
+        }
+    }
+
+    /// <summary>Lets go of every key and button the macro still holds: it ended, failed or was stopped with Esc.</summary>
+    void ReleaseHeld()
+    {
+        foreach (var vk in Enumerable.Reverse(_heldKeys))
+            try { _input.SendKey(vk, up: true); } catch (Exception) { }
+        foreach (var button in Enumerable.Reverse(_heldButtons))
+            try { _input.SendMouseButton(button, up: true); } catch (Exception) { }
+        _heldKeys.Clear();
+        _heldButtons.Clear();
+    }
+
+    static int KeyVk(string? name)
+    {
+        var text = (name ?? "").Trim();
+        if (text.Length == 0) throw new InvalidOperationException("no key is set.");
+        if (!KeyNames.TryGetVk(text, out var vk) || vk < 0x08)
+            throw new InvalidOperationException($"\"{text}\" is not a key RingDeck understands.");
+        return vk;
+    }
+
+    /// <summary>Plays a recorded path: each point at its time (divided by the speed). Points that fall behind are
+    /// still visited, so the pointer always ends where the recording ended.</summary>
+    async Task MovePath(MouseMoveStep move, CancellationToken ct)
+    {
+        var points = MousePath.Parse(move.Path);
+        if (points.Count == 0) throw new InvalidOperationException("the mouse move has not been recorded yet.");
+        var speed = MousePath.ClampSpeed(move.Speed);
+        var start = _clock();
+        foreach (var point in points)
+        {
+            var due = (long)(point.Ms / speed) - (_clock() - start);
+            if (due > 0) await _delay((int)Math.Min(due, MaxDelayMs), ct);
+            ct.ThrowIfCancellationRequested();
+            _input.MoveMouse(point.X, point.Y);
+        }
     }
 
     /// <summary>Runs one macro step. Returns true when no gap should follow (a wait, or a step with nothing to do).</summary>
@@ -168,6 +218,35 @@ public sealed class ActionRunner
             case WebhookStep hook:
                 await SendWebhook(hook.Request, ct);
                 return false;
+            case KeyDownStep down:
+                var downVk = KeyVk(down.Key);
+                _input.SendKey(downVk, up: false);
+                if (!_heldKeys.Contains(downVk)) _heldKeys.Add(downVk);
+                return false;
+            case KeyUpStep up:
+                var upVk = KeyVk(up.Key);
+                _input.SendKey(upVk, up: true);
+                _heldKeys.Remove(upVk);
+                return false;
+            case ClickStep click:
+                _input.SendMouseButton(click.Button, up: false);
+                _input.SendMouseButton(click.Button, up: true);
+                return false;
+            case MouseDownStep mouseDown:
+                _input.SendMouseButton(mouseDown.Button, up: false);
+                if (!_heldButtons.Contains(mouseDown.Button)) _heldButtons.Add(mouseDown.Button);
+                return false;
+            case MouseUpStep mouseUp:
+                _input.SendMouseButton(mouseUp.Button, up: true);
+                _heldButtons.Remove(mouseUp.Button);
+                return false;
+            case MouseMoveStep move:
+                await MovePath(move, ct);
+                return false;
+            case ScrollStep scroll:
+                if (scroll.Notches <= 0) return true;
+                _input.Scroll(scroll.Direction, Math.Min(scroll.Notches, MaxScrollNotches));
+                return false;
             default:
                 return true;
         }
@@ -207,6 +286,8 @@ public sealed class ActionRunner
     static string StepName(MacroStep step) => step switch
     {
         KeyStep => "keys", TextStep => "type text", DelayStep => "wait", PasteStep => "paste",
+        KeyDownStep => "key down", KeyUpStep => "key up", ClickStep => "click", MouseDownStep => "mouse down",
+        MouseUpStep => "mouse up", MouseMoveStep => "mouse move", ScrollStep => "scroll",
         LaunchStep => "open", FocusStep => "focus window", ClipboardStep => "set clipboard",
         WebhookStep w => "send to " + Webhooks.Name(w.Request.Service), _ => "step",
     };
