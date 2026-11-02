@@ -11,6 +11,7 @@ public sealed class RingController : IDisposable
 
     readonly Func<AppConfig> _config;
     readonly INotifier _notifier;
+    readonly Action _save;
     readonly InputHook _hook = new();
     readonly InputSender _input;
     readonly HotkeyMatcher _matcher = new();
@@ -32,10 +33,11 @@ public sealed class RingController : IDisposable
     bool _ticking, _disposed, _userPaused, _suppressed;
     readonly DispatcherTimer _foregroundTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
 
-    public RingController(Func<AppConfig> config, INotifier notifier)
+    public RingController(Func<AppConfig> config, INotifier notifier, Action save)
     {
         _config = config;
         _notifier = notifier;
+        _save = save;
         _session = new RingSession(id => _config().Find(id));
         _input = new InputSender(_hook.IsPhysicallyDown);
         _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier, delay: PreciseDelay.Wait, focuser: new WindowFocuser(_input),
@@ -333,6 +335,12 @@ public sealed class RingController : IDisposable
             OpenAi(aiSlice, ai);
             return;
         }
+        if (result.Kind == ChooseKind.Run && result.Slice is { Action: FlowAction { Schedule: { } schedule } })
+        {
+            schedule.Enabled = !schedule.Enabled;
+            _save();
+            return;
+        }
         if (result.Kind == ChooseKind.Run && result.Slice is { } slice)
             RunSlice(slice);
     }
@@ -421,6 +429,8 @@ public sealed class RingController : IDisposable
             if (Focus.Foreground() != target) Focus.Restore(target);
             await _runner.PasteTextAsync(text, CancellationToken.None);
         }));
+
+    public void RunNow(Slice slice) => RunSlice(slice);
 
     void RunSlice(Slice slice)
     {

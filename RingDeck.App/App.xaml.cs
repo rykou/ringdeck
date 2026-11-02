@@ -187,7 +187,7 @@ public partial class App : Application
 
     void StartController()
     {
-        try { Controller = new RingController(() => Config, Tray); }
+        try { Controller = new RingController(() => Config, Tray, () => Store.Save(Config)); }
         catch (System.ComponentModel.Win32Exception ex)
         {
             Log(ex);
