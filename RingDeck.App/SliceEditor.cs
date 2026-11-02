@@ -296,7 +296,7 @@ public partial class EditorWindow
         time.Children.Add(minute);
         slicePanel.Children.Add(time);
 
-        var days = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        var days = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
         foreach (var (flag, label) in new[]
         {
             (ScheduleDays.Monday, "Mon"), (ScheduleDays.Tuesday, "Tue"), (ScheduleDays.Wednesday, "Wed"), (ScheduleDays.Thursday, "Thu"),
