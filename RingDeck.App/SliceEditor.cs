@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
 using RingDeck.Core;
@@ -272,7 +273,7 @@ public partial class EditorWindow
         attach.Checked += (_, _) =>
         {
             if (_loading || flow.Schedule is not null) return;
-            flow.Schedule = new FlowSchedule { HourOfDay = 9, MinuteOfDay = 0, Days = ScheduleDays.Monday | ScheduleDays.Tuesday | ScheduleDays.Wednesday | ScheduleDays.Thursday | ScheduleDays.Friday };
+            flow.Schedule = new FlowSchedule { Enabled = true, HourOfDay = 9, MinuteOfDay = 0, Days = ScheduleDays.Monday | ScheduleDays.Tuesday | ScheduleDays.Wednesday | ScheduleDays.Thursday | ScheduleDays.Friday };
             ShowSlice(_slice);
             Touch();
         };
@@ -288,9 +289,9 @@ public partial class EditorWindow
 
         var time = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
         var hour = new ComboBox { ItemsSource = Enumerable.Range(0, 24).ToList(), SelectedItem = schedule.HourOfDay, Width = 70 };
-        hour.SelectionChanged += (_, _) => { if (_loading || hour.SelectedItem is not int h) return; schedule.HourOfDay = h; Touch(); };
+        hour.SelectionChanged += (_, _) => { if (_loading || hour.SelectedItem is not int h) return; schedule.HourOfDay = h; schedule.LastRunDate = null; Touch(); };
         var minute = new ComboBox { ItemsSource = new[] { 0, 15, 30, 45 }, SelectedItem = schedule.MinuteOfDay, Width = 70, Margin = new Thickness(6, 0, 0, 0) };
-        minute.SelectionChanged += (_, _) => { if (_loading || minute.SelectedItem is not int m) return; schedule.MinuteOfDay = m; Touch(); };
+        minute.SelectionChanged += (_, _) => { if (_loading || minute.SelectedItem is not int m) return; schedule.MinuteOfDay = m; schedule.LastRunDate = null; Touch(); };
         time.Children.Add(hour);
         time.Children.Add(minute);
         slicePanel.Children.Add(time);
@@ -303,8 +304,8 @@ public partial class EditorWindow
         })
         {
             var box = new CheckBox { Content = label, IsChecked = schedule.Days.HasFlag(flag), Margin = new Thickness(0, 0, 8, 0) };
-            box.Checked += (_, _) => { if (_loading) return; schedule.Days |= flag; Touch(); };
-            box.Unchecked += (_, _) => { if (_loading) return; schedule.Days &= ~flag; Touch(); };
+            box.Checked += (_, _) => { if (_loading) return; schedule.Days |= flag; schedule.LastRunDate = null; Touch(); };
+            box.Unchecked += (_, _) => { if (_loading) return; schedule.Days &= ~flag; schedule.LastRunDate = null; Touch(); };
             days.Children.Add(box);
         }
         slicePanel.Children.Add(days);
@@ -314,7 +315,12 @@ public partial class EditorWindow
             Content = "Run now", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0),
             ToolTip = "Runs it once immediately, without waiting for the scheduled time",
         };
-        runNow.Click += (_, _) => { if (_slice is { } slice) _app.Controller.RunNow(slice); };
+        runNow.Click += (_, _) =>
+        {
+            if (_slice is not { } slice) return;
+            Keyboard.ClearFocus();     // otherwise a flow that ends by pressing Enter/Space re-clicks this button
+            _app.Controller.RunNow(slice);
+        };
         slicePanel.Children.Add(runNow);
 
         slicePanel.Children.Add(new TextBlock

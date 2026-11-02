@@ -443,7 +443,13 @@ public sealed class RingController : IDisposable
         if (_suppressed) return;
         foreach (var (_, slice) in due)
         {
-            if (_running is not null) break;   // busy: the rest of this tick's occurrences are skipped, not queued
+            if (_running is not null)
+            {
+                // Busy: this occurrence is skipped, not queued or retried later, same as a missed run — but unlike
+                // a missed run, this one was never going to happen on its own, so say so rather than staying silent.
+                _notifier.Notify($"\"{slice.Label}\" did not run", "Another action was already running at its scheduled time.");
+                break;
+            }
             RunSlice(slice);
         }
     }

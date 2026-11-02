@@ -187,13 +187,24 @@ public partial class App : Application
 
     void StartController()
     {
-        try { Controller = new RingController(() => Config, Tray, () => Store.Save(Config)); }
+        try { Controller = new RingController(() => Config, Tray, SaveQuietly); }
         catch (System.ComponentModel.Win32Exception ex)
         {
             Log(ex);
             MessageBox.Show(ex.Message, "RingDeck", MessageBoxButton.OK, MessageBoxImage.Error);
             Tray.Dispose();
             Shutdown();
+        }
+    }
+
+    /// <summary>Saves config right away (no debounce: the controller calls this rarely — a schedule toggle, or a
+    /// flow marking today as run). Mirrors EditorWindow.Flush's own catch, since this is the only other writer.</summary>
+    void SaveQuietly()
+    {
+        try { Store.Save(Config); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Tray.Notify("RingDeck could not save your rings", ex.Message);
         }
     }
 
