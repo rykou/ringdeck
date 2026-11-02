@@ -32,6 +32,7 @@ public sealed class RingController : IDisposable
     TimeSpan _lastFrame;
     bool _ticking, _disposed, _userPaused, _suppressed;
     readonly DispatcherTimer _foregroundTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
+    readonly DispatcherTimer _scheduleTimer = new() { Interval = TimeSpan.FromMilliseconds(20_000) };
 
     public RingController(Func<AppConfig> config, INotifier notifier, Action save)
     {
@@ -51,6 +52,8 @@ public sealed class RingController : IDisposable
         _hook.Install();
         _foregroundTimer.Tick += (_, _) => CheckForeground();
         _foregroundTimer.Start();
+        _scheduleTimer.Tick += (_, _) => RunDueFlows();
+        _scheduleTimer.Start();
         Reload();
     }
 
@@ -432,6 +435,19 @@ public sealed class RingController : IDisposable
 
     public void RunNow(Slice slice) => RunSlice(slice);
 
+    void RunDueFlows()
+    {
+        var due = FlowScheduler.Due(_config(), DateTime.Now);
+        if (due.Count == 0) return;
+        _save();
+        if (_suppressed) return;
+        foreach (var (_, slice) in due)
+        {
+            if (_running is not null) break;   // busy: the rest of this tick's occurrences are skipped, not queued
+            RunSlice(slice);
+        }
+    }
+
     void RunSlice(Slice slice)
     {
         CancelRunning();
@@ -510,6 +526,7 @@ public sealed class RingController : IDisposable
         _disposed = true;
         _hook.Dispose();
         _foregroundTimer.Stop();
+        _scheduleTimer.Stop();
         CancelRunning();
         _actions.BeginInvokeShutdown(DispatcherPriority.Normal);
         if (_ticking) CompositionTarget.Rendering -= OnFrame;
