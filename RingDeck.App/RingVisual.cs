@@ -114,6 +114,7 @@ public sealed partial class RingVisual : FrameworkElement
             dc.DrawEllipse(Theme.Frozen(fillColor), new Pen(selected ? accent : edge, selected ? 2.5 : 1), at, r, r);
             DrawIcon(dc, IconOf(slice), slice.Label, at, r, Contrast(fillColor), dpi);
             HoldRing(dc, slice, i, at, r, accentColor);
+            ScheduleRing(dc, slice, at, r);
             if (slice.Action is NestedRingAction)
                 dc.DrawEllipse(accent, null, Along(center, angle, Radius * pose.RadiusFactor + r + 7), 3, 3);
             // The label stays under the slice while it is selected too (it is also shown in the centre);
@@ -164,6 +165,14 @@ public sealed partial class RingVisual : FrameworkElement
         }
         geometry.Freeze();
         dc.DrawGeometry(null, pen, geometry);
+    }
+
+    /// <summary>A flow slice with a schedule: a thin ring around it, green while armed, red while parked.</summary>
+    static void ScheduleRing(DrawingContext dc, Slice slice, Point at, double r)
+    {
+        if (slice.Action is not FlowAction { Schedule: { } schedule }) return;
+        var color = schedule.Enabled ? Colors.Green : Colors.Red;
+        dc.DrawEllipse(null, new Pen(Theme.Frozen(color, 0.85), 2.5), at, r + 13, r + 13);
     }
 
     /// <summary>A slice's icon; a slice that opens another ring and has none borrows that ring's icon.</summary>
@@ -258,6 +267,7 @@ public sealed partial class RingVisual : FrameworkElement
         dc.DrawEllipse(Theme.Frozen(accentColor, 0.28), null, at, r + 8, r + 8);
         dc.DrawEllipse(Theme.Frozen(fill), new Pen(Theme.Frozen(accentColor), 2.5), at, r, r);
         DrawIcon(dc, slice, at, r, Contrast(fill), dpi);
+        ScheduleRing(dc, slice, at, r);
         if (slice.Label.Length > 0)
             DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 10), 12, Theme.Frozen(Colors.White), 140, dpi, false, true);
     }

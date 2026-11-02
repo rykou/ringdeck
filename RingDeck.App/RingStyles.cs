@@ -106,6 +106,7 @@ public sealed partial class RingVisual
             dc.DrawEllipse(Theme.Frozen(fill), new Pen(Theme.Frozen(selected ? Mix(border, f.Accent, f.Hover) : border), 1), at, r, r);
             DrawIcon(dc, IconOf(slice), slice.Label, at, r, Contrast(fill), f.Dpi);
             HoldRing(dc, slice, i, at, r, f.Accent);
+            ScheduleRing(dc, slice, at, r);
             if (f.Ring.ShowLabels && slice.Label.Length > 0)
                 DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 4 + (slice.ConfirmMs > 0 ? 10 : 0)), 11, Theme.Frozen(Colors.White), 120, f.Dpi, false, true);
             if (i == Faded) dc.Pop();
@@ -158,6 +159,7 @@ public sealed partial class RingVisual
                 DrawIcon(dc, IconOf(slice), slice.Label, at, r, iconColour, f.Dpi);
             }
             HoldRing(dc, slice, i, at, r, f.Accent);
+            ScheduleRing(dc, slice, at, r);
             if (f.Ring.ShowLabels && slice.Label.Length > 0)
                 DrawText(dc, slice.Label, new Point(at.X, at.Y + r + 2 + (slice.ConfirmMs > 0 ? 10 : 0)), 11, Theme.Frozen(Colors.White), 120, f.Dpi, false, true);
             if (i == Faded) dc.Pop();
@@ -235,6 +237,7 @@ public sealed partial class RingVisual
             Halo(dc, at, r * (selected ? 1.15 : 0.95), glow, selected ? 0.55 + 0.25 * f.Hover : 0.4);
             DrawIcon(dc, IconOf(slice), slice.Label, at, r * 0.9, Colors.White, f.Dpi);
             HoldRing(dc, slice, i, at, r * 0.9, f.Accent);
+            ScheduleRing(dc, slice, at, r * 0.9);
             if (slice.Action is NestedRingAction)
             {
                 var dot = Along(f.Center, AngleOf(i, f), f.Spread + r + 8);
@@ -316,6 +319,7 @@ public sealed partial class RingVisual
             dc.DrawEllipse(Theme.Frozen(fill), null, at, r, r);
             DrawIcon(dc, IconOf(slice), slice.Label, at, r, Ink, f.Dpi);
             HoldRing(dc, slice, i, at, r, f.Accent);
+            ScheduleRing(dc, slice, at, r);
             if (i == Faded) dc.Pop();
         }
     }
