@@ -208,6 +208,12 @@ public sealed class ConfigStore
         foreach (var wire in flow.Wires.Where(w => ids.Contains(w.From) && ids.Contains(w.To)))
             if (FlowGraph.CanLink(new FlowAction { Nodes = flow.Nodes, Wires = kept }, wire.From, wire.To)) kept.Add(wire);
         flow.Wires = kept;
+        if (flow.Schedule is { } schedule)
+        {
+            schedule.HourOfDay = Math.Clamp(schedule.HourOfDay, 0, 23);
+            schedule.MinuteOfDay = Math.Clamp(schedule.MinuteOfDay, 0, 59);
+            schedule.Days &= (ScheduleDays)0x7F;
+        }
     }
 
     public static AppConfig Sample() => new()

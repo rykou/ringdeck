@@ -90,6 +90,32 @@ public sealed class Slice
 [JsonDerivedType(typeof(FlowAction), "flow")]
 public abstract class SliceAction { }
 
+[Flags]
+public enum ScheduleDays
+{
+    None = 0,
+    Monday = 1,
+    Tuesday = 2,
+    Wednesday = 4,
+    Thursday = 8,
+    Friday = 16,
+    Saturday = 32,
+    Sunday = 64,
+}
+
+/// <summary>A recurring weekly time a flow fires itself. <see cref="Enabled"/> is separate from attaching one, so
+/// turning it off keeps the configured time/days instead of discarding them.</summary>
+public sealed class FlowSchedule
+{
+    public bool Enabled { get; set; }
+    public int HourOfDay { get; set; }
+    public int MinuteOfDay { get; set; }
+    public ScheduleDays Days { get; set; }
+    /// <summary>The last day this schedule fired, so a tick within the same minute (or a restart later the same
+    /// day) does not fire it twice.</summary>
+    public DateOnly? LastRunDate { get; set; }
+}
+
 public sealed class PasteTextAction : SliceAction
 {
     public string Text { get; set; } = "";
@@ -210,6 +236,8 @@ public sealed class FlowAction : SliceAction
 {
     public List<FlowNode> Nodes { get; set; } = new();
     public List<FlowWire> Wires { get; set; } = new();
+    /// <summary>Null: this flow only runs when chosen in the ring, as normal.</summary>
+    public FlowSchedule? Schedule { get; set; }
 
     public static FlowAction New() => new()
     {
