@@ -162,6 +162,18 @@
             <Button Content="Delete" Click="OnDeleteConnection" />
           </UniformGrid>
 
+          <TextBlock Style="{StaticResource Heading}" Text="Use the computer" Margin="0,26,0,4" />
+          <TextBlock Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,0,0,6"
+                     Text="Flow cards that let your AI work this computer use agent-desktop. Leave this empty to use the usual install folder (tools\agent-desktop in your user folder)." />
+          <DockPanel>
+            <Button Content="Browse…" DockPanel.Dock="Right" Margin="6,0,0,0" Click="OnBrowseAgentDesktop" />
+            <TextBox x:Name="agentDesktopBox" Text="{Binding AgentDesktopPath, UpdateSourceTrigger=PropertyChanged}"
+                     TextChanged="OnAgentDesktopChanged" ToolTip="The full path of agent-desktop.exe" />
+          </DockPanel>
+          <TextBlock x:Name="agentDesktopStatus" TextWrapping="Wrap" Margin="0,4,0,0" />
+          <Button Content="Open the log" HorizontalAlignment="Left" Margin="0,6,0,0" Click="OnOpenComputerLog"
+                  ToolTip="Every action those cards took, with the time. What they read or typed is not kept." />
+
           <TextBlock Style="{StaticResource Heading}" Text="Games" Margin="0,26,0,4" />
           <CheckBox Content="Turn rings off in fullscreen apps and games" IsChecked="{Binding DisableInFullscreen}" />
           <TextBlock Style="{StaticResource Caption}" Text="Also off in these programs (one per line, for example Wow.exe)" TextWrapping="Wrap" />

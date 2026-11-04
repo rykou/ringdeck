@@ -43,6 +43,9 @@ public sealed class GlobalSettings
     public List<string> ExcludedApps { get; set; } = new();
     /// <summary>Macro editor: show key and mouse button presses as separate "down" and "up" rows.</summary>
     public bool SplitKeyEvents { get; set; }
+    /// <summary>Where agent-desktop.exe is, for "Use the computer" steps. Empty: the usual install folder
+    /// (%USERPROFILE%\tools\agent-desktop), then PATH.</summary>
+    public string AgentDesktopPath { get; set; } = "";
 }
 
 public sealed class Ring
@@ -157,7 +160,11 @@ public sealed class NestedRingAction : SliceAction
 [JsonDerivedType(typeof(ScrollStep), "scroll")]
 [JsonDerivedType(typeof(ScreenshotStep), "screenshot")]
 [JsonDerivedType(typeof(AskAiStep), "ai")]
+[JsonDerivedType(typeof(ComputerStep), "computer")]
 public abstract class MacroStep { }
+
+/// <summary>A step that talks to one of the AI connections (so exports and imports keep that connection).</summary>
+public interface IAiStep { Guid ConnectionId { get; set; } }
 
 public sealed class KeyStep : MacroStep { public string Combo { get; set; } = ""; }
 public sealed class TextStep : MacroStep { public string Text { get; set; } = ""; }
@@ -187,12 +194,13 @@ public sealed class ScreenshotStep : MacroStep
     public ScreenshotArea Area { get; set; } = ScreenshotArea.Screen;
 }
 
-/// <summary>What an Ask AI step reads from the clipboard.</summary>
-public enum AiReads { Picture, Text, Both, Nothing }
+/// <summary>What an Ask AI step reads: from the clipboard, or (ActiveWindow) a screenshot of the window in front,
+/// taken when the step runs. New values go at the end: the editor's list is in this order.</summary>
+public enum AiReads { Picture, Text, Both, Nothing, ActiveWindow }
 
 /// <summary>Asks an AI connection once, with the clipboard picture and/or text, and puts the answer on the clipboard
 /// in place of what was there (a picture it read is gone afterwards), for the next steps to paste or send.</summary>
-public sealed class AskAiStep : MacroStep
+public sealed class AskAiStep : MacroStep, IAiStep
 {
     public Guid ConnectionId { get; set; }
     public string Instruction { get; set; } = "";
@@ -206,6 +214,26 @@ public sealed class AskAiStep : MacroStep
         FlowAction flow => flow.Nodes.SelectMany(n => n.Steps),
         _ => Enumerable.Empty<MacroStep>(),
     };
+}
+
+/// <summary>Lets an AI work the computer through agent-desktop (it reads windows and web pages and clicks, types
+/// and presses keys in them) to follow the user's numbered steps. Its result, or a message saying which step
+/// failed and why, replaces what's on the clipboard, so the next cards can send it. See <see cref="ComputerAgent"/>.</summary>
+public sealed class ComputerStep : MacroStep, IAiStep
+{
+    public const int DefaultMaxActions = 40, DefaultMaxMinutes = 5;
+    public Guid ConnectionId { get; set; }
+    /// <summary>What to do, ideally as numbered steps: "1. Open Edge 2. Click Gmail in the favourites bar ...".</summary>
+    public string Instruction { get; set; } = "";
+    /// <summary>How many things it may do (clicks, reads, key presses...) before it gives up.</summary>
+    public int MaxActions { get; set; } = DefaultMaxActions;
+    public int MaxMinutes { get; set; } = DefaultMaxMinutes;
+    /// <summary>Off: it works through Windows accessibility without moving the mouse or taking focus.
+    /// On: real mouse and keyboard input, for apps that don't respond otherwise.</summary>
+    public bool RealInput { get; set; }
+    /// <summary>Lets it type into any window with the real keyboard, terminals included, so it can run commands.
+    /// Off unless the user ticks it: a page or email it reads could try to make it type something harmful.</summary>
+    public bool AllowTyping { get; set; }
 }
 
 public enum FlowNodeKind { Action, Start, Stop }

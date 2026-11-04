@@ -135,6 +135,7 @@ public sealed class ConfigStore
         config.Settings.ExcludedApps = (config.Settings.ExcludedApps ?? new())
             .Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        config.Settings.AgentDesktopPath = (config.Settings.AgentDesktopPath ?? "").Trim().Trim('"');
         config.AiConnections = (config.AiConnections ?? new()).Where(c => c is not null).ToList();
         var connectionIds = new HashSet<Guid>();
         foreach (var c in config.AiConnections)
@@ -174,6 +175,12 @@ public sealed class ConfigStore
                     ask.Instruction ??= "";
                     ask.SystemPrompt ??= "";
                     if (!Enum.IsDefined(ask.Reads)) ask.Reads = AiReads.Picture;
+                }
+                foreach (var use in AskAiStep.In(slice.Action).OfType<ComputerStep>().ToList())
+                {
+                    use.Instruction ??= "";
+                    use.MaxActions = Math.Clamp(use.MaxActions, 1, 500);
+                    use.MaxMinutes = Math.Clamp(use.MaxMinutes, 1, 120);
                 }
                 if (slice.Action is MacroAction macro)
                     macro.Steps = (macro.Steps ?? new()).Where(s => s is not null).ToList();

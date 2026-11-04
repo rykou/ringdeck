@@ -27,6 +27,12 @@ public sealed class RingController : IDisposable
     readonly Dispatcher _actions;          // a second STA thread: clipboard, SendInput and launching can block,
                                            // and Windows drops a low-level hook whose thread stops answering
     CancellationTokenSource? _running;
+    /// <summary>The slice whose action is running, and that run: it can't be chosen again until it ends.</summary>
+    Guid? _busySlice;
+    CancellationTokenSource? _busyRun;
+    BusyBadge? _badge;
+    /// <summary>The corner badge only appears for runs longer than this, so a quick paste doesn't flash it.</summary>
+    readonly DispatcherTimer _badgeDelay = new() { Interval = TimeSpan.FromMilliseconds(600) };
     ScreenInfo _screen;
     double _unit = 1, _dpiScale = 1;
     TimeSpan _lastFrame;
@@ -43,7 +49,7 @@ public sealed class RingController : IDisposable
         _input = new InputSender(_hook.IsPhysicallyDown);
         _runner = new ActionRunner(_input, _clipboard, new Launcher(), notifier, delay: PreciseDelay.Wait, focuser: new WindowFocuser(_input),
             webhooks: new WebhookClient(), reveal: App.Instance.Secrets.Reveal, selection: ct => SelectionGrabber.GrabAsync(_input, _clipboard, ct), shrink: ImageShrinker.Fit,
-            chooseScreenshot: AreaPicker.PickAsync, askAi: AskAi);
+            chooseScreenshot: AreaPicker.PickAsync, askAi: AskAi, useComputer: UseComputer);
         _actions = StartActionThread();
         _hook.Error = App.Log;
         WindowAt(3);                       // depths 0-3 ready before the first ring opens
@@ -54,6 +60,8 @@ public sealed class RingController : IDisposable
         _foregroundTimer.Start();
         _scheduleTimer.Tick += (_, _) => RunDueFlows();
         _scheduleTimer.Start();
+        _badgeDelay.Tick += (_, _) => ShowBadge();
+        RingVisual.IsBusy = id => id == _busySlice;
         Reload();
     }
 
@@ -344,7 +352,7 @@ public sealed class RingController : IDisposable
             _save();
             return;
         }
-        if (result.Kind == ChooseKind.Run && result.Slice is { } slice)
+        if (result.Kind == ChooseKind.Run && result.Slice is { } slice && !StillRunning(slice))
             RunSlice(slice);
     }
 
@@ -395,6 +403,22 @@ public sealed class RingController : IDisposable
         catch (AiException ex) { throw new InvalidOperationException(ex.Message); }
     }
 
+    /// <summary>A Use the computer step: lets the AI work the computer and returns its result, or the message saying
+    /// where it failed (also shown as a notification, since nobody may be watching). Every action goes in the log.</summary>
+    async Task<string> UseComputer(ComputerStep step, CancellationToken ct)
+    {
+        var connection = _config().FindConnection(step.ConnectionId);
+        if (connection is null) return ComputerAgent.FailureText(0, null, "its AI connection was deleted. Pick one in the step.");
+        var reveal = App.Instance.Secrets.Reveal;
+        var agent = new ComputerAgent((system, messages, tools, token) => _ai.SendWithToolsAsync(connection, system, messages, tools, reveal, token),
+            new AgentDesktop(_config().Settings.AgentDesktopPath), App.LogComputer, progress: ShowProgress,
+            keyboard: step.AllowTyping ? _input : null, foregroundTitle: Focus.ForegroundTitle);
+        App.LogComputer($"--- {connection.Name}: {FlowText.Step(step)}");
+        var outcome = await agent.RunAsync(step, ct);
+        if (!outcome.Done) _notifier.Notify("Use the computer did not finish", outcome.Text);
+        return outcome.Text;
+    }
+
     /// <summary>No chat window: ask once, put the answer on the clipboard, say so. Runs on the actions thread.</summary>
     async Task AnswerToClipboard(Slice slice, AiConnection connection, AiChatAction ai, string? input, ClipImage? image)
     {
@@ -433,7 +457,49 @@ public sealed class RingController : IDisposable
             await _runner.PasteTextAsync(text, CancellationToken.None);
         }));
 
-    public void RunNow(Slice slice) => RunSlice(slice);
+    public void RunNow(Slice slice)
+    {
+        if (!StillRunning(slice)) RunSlice(slice);
+    }
+
+    /// <summary>True (and says so) when this slice's last run hasn't finished: choosing it again would start the
+    /// same work twice, such as sending another request to the AI.</summary>
+    bool StillRunning(Slice slice)
+    {
+        if (_busySlice != slice.Id) return false;
+        _notifier.Notify($"\"{slice.Label}\" is still running", "Wait for it to finish, or stop it with Esc or the \u2715 in the corner of the screen.");
+        return true;
+    }
+
+    void ShowBadge()
+    {
+        _badgeDelay.Stop();
+        if (_busySlice is not { } id || FindSlice(id) is not { } slice) return;
+        _badge ??= new BusyBadge(CancelRunning);
+        _badge.ShowFor(slice.Label, slice.Action is FlowAction ? "Running the flow" : "Working on it");
+    }
+
+    /// <summary>Shows what a running Use the computer step is doing, on the badge. Any thread.</summary>
+    void ShowProgress(string status) => _dispatcher.BeginInvoke(() =>
+    {
+        if (_busySlice is null) return;
+        if (_badge is not { IsVisible: true }) ShowBadge();
+        _badge?.SetStatus(status);
+    });
+
+    Slice? FindSlice(Guid id) => _config().Rings.SelectMany(r => r.Slices).FirstOrDefault(s => s.Id == id);
+
+    /// <summary>The run ended (UI thread): the slice can be chosen again and the badge goes, unless a newer run
+    /// has already taken over.</summary>
+    void EndBusy(CancellationTokenSource run)
+    {
+        if (_busyRun != run) return;
+        _busySlice = null;
+        _busyRun = null;
+        _badgeDelay.Stop();
+        _badge?.HideBadge();
+        foreach (var window in _windows) window.Redraw();
+    }
 
     void RunDueFlows()
     {
@@ -459,6 +525,10 @@ public sealed class RingController : IDisposable
         CancelRunning();
         var cts = new CancellationTokenSource();
         _running = cts;
+        _busySlice = slice.Id;
+        _busyRun = cts;
+        _badgeDelay.Stop();
+        _badgeDelay.Start();
         _actions.BeginInvoke(new Func<Task>(async () =>
         {
             try
@@ -470,6 +540,7 @@ public sealed class RingController : IDisposable
             finally
             {
                 Interlocked.CompareExchange(ref _running, null, cts);
+                _ = _dispatcher.BeginInvoke(() => EndBusy(cts));
                 cts.Dispose();
             }
         }));
@@ -533,6 +604,8 @@ public sealed class RingController : IDisposable
         _hook.Dispose();
         _foregroundTimer.Stop();
         _scheduleTimer.Stop();
+        _badgeDelay.Stop();
+        _badge?.Close();
         CancelRunning();
         _actions.BeginInvokeShutdown(DispatcherPriority.Normal);
         if (_ticking) CompositionTarget.Rendering -= OnFrame;

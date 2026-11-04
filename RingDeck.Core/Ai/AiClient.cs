@@ -58,6 +58,32 @@ public sealed class AiClient
         }
     }
 
+    /// <summary>One turn of a conversation in which the AI can use <paramref name="tools"/>: sends everything so
+    /// far and returns its reply whole. Throws <see cref="AiException"/> with a message fit to show.</summary>
+    public async Task<AgentReply> SendWithToolsAsync(AiConnection connection, string system, IReadOnlyList<AgentMessage> messages,
+        IReadOnlyList<AiTool> tools, Func<string, string> reveal, CancellationToken ct)
+    {
+        var call = AiTools.Build(connection, system, messages, tools, reveal);
+        if (!Uri.TryCreate(call.Url, UriKind.Absolute, out var url) || (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps))
+            throw new AiException("This connection has no valid web address (it should start with https://).");
+        var key = connection.ApiKey.Length > 0 ? reveal(connection.ApiKey) : null;
+        using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(call.Body, Encoding.UTF8, "application/json") };
+        foreach (var (name, value) in call.Headers)
+            if (!request.Headers.TryAddWithoutValidation(name, value)) request.Content.Headers.TryAddWithoutValidation(name, value);
+
+        HttpResponseMessage response;
+        try { response = await _http.SendAsync(request, ct); }
+        catch (HttpRequestException ex) { throw new AiException("Could not reach the service: " + ex.Message); }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested) { throw new AiException("The service took longer than 2 minutes to answer."); }
+        using (response)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            if (!response.IsSuccessStatusCode) throw new AiException(AiResponses.ErrorSummary((int)response.StatusCode, body, key));
+            try { return AiTools.Parse(connection.Format, body); }
+            catch (AiException ex) when (key is { Length: > 0 }) { throw new AiException(ex.Message.Replace(key, "•••")); }
+        }
+    }
+
     /// <summary>The models the connection's key can use (all pages), or an empty list for the custom format.</summary>
     public async Task<List<string>> ListModelsAsync(AiConnection connection, Func<string, string> reveal, CancellationToken ct)
     {

@@ -245,6 +245,24 @@ public partial class App : Application
         Shutdown();
     }
 
+    /// <summary>What Use the computer steps did, newest last. Never holds what they read or typed.</summary>
+    public static string ComputerLogPath => Path.Combine(DataDir, "logs", "computer.log");
+    static readonly object ComputerLogGate = new();
+
+    /// <summary>Adds a timed line to the Use the computer log; past 1 MB the old lines move to computer.old.log.</summary>
+    public static void LogComputer(string line)
+    {
+        lock (ComputerLogGate)
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(ComputerLogPath)!);
+                var file = new FileInfo(ComputerLogPath);
+                if (file.Exists && file.Length > 1_000_000) File.Move(ComputerLogPath, Path.ChangeExtension(ComputerLogPath, ".old.log"), overwrite: true);
+                File.AppendAllText(ComputerLogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {line}{Environment.NewLine}");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
     public static void Log(Exception ex)
     {
         try

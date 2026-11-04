@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using RingDeck.Core;
@@ -138,6 +139,7 @@ public partial class EditorWindow : Window
         Closing += (_, _) => { _app.Controller.Capture = null; Flush(); };
         settingsPanel.DataContext = Config.Settings;
         excludedBox.Text = string.Join(Environment.NewLine, Config.Settings.ExcludedApps);
+        ShowAgentDesktopStatus();
         connectionList.ItemsSource = Config.AiConnections;
         runningBox.ItemsSource = new[] { RunningPrompt };
         runningBox.SelectedIndex = 0;
@@ -242,6 +244,27 @@ public partial class EditorWindow : Window
         Directory.CreateDirectory(_app.Store.BackupsDir);
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_app.Store.BackupsDir) { UseShellExecute = true })?.Dispose();
     }
+
+    // ----- Use the computer -----
+
+    void OnAgentDesktopChanged(object sender, TextChangedEventArgs e) => ShowAgentDesktopStatus();
+
+    /// <summary>Says whether agent-desktop is where the box (or the usual folder) says.</summary>
+    void ShowAgentDesktopStatus()
+    {
+        var found = AgentDesktop.Find(agentDesktopBox.Text);
+        agentDesktopStatus.Text = found is not null ? "Found: " + found
+            : agentDesktopBox.Text.Trim().Length > 0 ? "There is no agent-desktop.exe there." : "Not installed yet.";
+        agentDesktopStatus.Foreground = found is not null ? (Brush)FindResource("SubtleBrush") : Brushes.Orange;
+    }
+
+    void OnBrowseAgentDesktop(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "agent-desktop|agent-desktop.exe|Programs (*.exe)|*.exe", Title = "Where is agent-desktop.exe?" };
+        if (dialog.ShowDialog(this) == true) agentDesktopBox.Text = dialog.FileName;
+    }
+
+    void OnOpenComputerLog(object sender, RoutedEventArgs e) => OpenComputerLog();
 
     // ----- AI connections -----
 

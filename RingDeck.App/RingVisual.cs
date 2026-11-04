@@ -167,9 +167,28 @@ public sealed partial class RingVisual : FrameworkElement
         dc.DrawGeometry(null, pen, geometry);
     }
 
-    /// <summary>A flow slice with a schedule: a thin ring around it, green while armed, red while parked.</summary>
+    /// <summary>Whether a slice's action is still running (set by the controller); such a slice is drawn dimmed.</summary>
+    public static Func<Guid, bool> IsBusy { get; set; } = _ => false;
+
+    static readonly Pen BusyPen = MakeBusyPen();
+    static Pen MakeBusyPen()
+    {
+        var pen = new Pen(Theme.Frozen(Color.FromRgb(0xFF, 0xB8, 0x4C), 0.95), 2.5) { DashStyle = new DashStyle(new double[] { 3, 2 }, 0), DashCap = PenLineCap.Round };
+        pen.Freeze();
+        return pen;
+    }
+
+    /// <summary>Marks drawn over a slice after its body, in every style: a still-running slice is dimmed with a
+    /// dashed amber ring (it can't be chosen until it ends); a flow slice with a schedule gets a thin ring, green
+    /// while armed, red while parked.</summary>
     static void ScheduleRing(DrawingContext dc, Slice slice, Point at, double r)
     {
+        if (IsBusy(slice.Id))
+        {
+            dc.DrawEllipse(Theme.Frozen(Colors.Black, 0.45), null, at, r, r);
+            dc.DrawEllipse(null, BusyPen, at, r + 13, r + 13);
+            return;
+        }
         if (slice.Action is not FlowAction { Schedule: { } schedule }) return;
         var color = schedule.Enabled ? Colors.Green : Colors.Red;
         dc.DrawEllipse(null, new Pen(Theme.Frozen(color, 0.85), 2.5), at, r + 13, r + 13);

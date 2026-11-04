@@ -44,6 +44,19 @@ public static class Focus
 
     public static IntPtr Foreground() => NativeMethods.GetForegroundWindow();
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder text, int max);
+    [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hwnd);
+
+    /// <summary>The title of the window in front, or null when there is none.</summary>
+    public static string? ForegroundTitle()
+    {
+        var hwnd = Foreground();
+        if (hwnd == IntPtr.Zero) return null;
+        var text = new System.Text.StringBuilder(GetWindowTextLength(hwnd) + 1);
+        GetWindowText(hwnd, text, text.Capacity);
+        return text.ToString();
+    }
+
     /// <summary>Gives focus back to a window. Works while one of RingDeck's own windows is in front.</summary>
     public static bool Restore(IntPtr hwnd)
     {

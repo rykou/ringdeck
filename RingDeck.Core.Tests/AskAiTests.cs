@@ -22,6 +22,8 @@ public class AskAiTests
         public string? GetText() => Text;
         public ClipImage? GetImage() => Image;
         public bool TrySetText(string text) { Text = text; Image = null; Add("clip " + text); return true; }
+        public ClipImage? Shot;
+        public void PutScreenshot(ScreenshotArea area) { Add("screenshot " + area); Image = Shot; }
         public object? Capture() => null;
         public void Restore(object? snapshot) { }
         public void Launch(string target, string arguments, string workingFolder) => Add("open " + target);
@@ -51,6 +53,30 @@ public class AskAiTests
         Assert.Equal("clip It says: File not found", d.Log[0]);
         Assert.Null(d.Image);                                    // the answer replaces the picture
         Assert.Equal("It says: File not found", d.Text);
+    }
+
+    [Fact]
+    public async Task ScreenshotsTheWindowInFrontWhenItRuns()
+    {
+        ClipImage? seen = null;
+        string? seenText = "unset";
+        var (r, d) = Make((_, text, image, _) => { seen = image; seenText = text; return Task.FromResult("A login form"); });
+        d.Shot = new ClipImage([9, 9], "window.png", "image/png");
+        await Macro(r, new AskAiStep { Reads = AiReads.ActiveWindow, Instruction = "What is this?" });
+        Assert.Empty(d.Notes);
+        Assert.Equal("screenshot ActiveWindow", d.Log[0]);
+        Assert.Same(d.Shot, seen);                                // the new screenshot, not what was on the clipboard
+        Assert.Null(seenText);
+        Assert.Equal("A login form", d.Text);
+    }
+
+    [Fact]
+    public async Task AWindowScreenshotThatCantBeReadSaysSo()
+    {
+        var (r, d) = Make((_, _, _, _) => Task.FromResult("never"));
+        d.Shot = null;
+        await Macro(r, new AskAiStep { Reads = AiReads.ActiveWindow });
+        Assert.Contains(d.Notes, n => n.Contains("window in front could not be read"));
     }
 
     [Fact]

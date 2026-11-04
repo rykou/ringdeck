@@ -64,6 +64,17 @@ A slice set to **Flow** opens a canvas where actions are cards linked by wires, 
 - **Ask AI** sends the clipboard picture and/or text to one of your AI connections with your question; the answer
   replaces what's on the clipboard, for the next cards to paste or send (`{clipboard}`). For example: Screenshot area →
   Ask AI "Read the error and suggest a fix" → Send to Teams.
+- **Use the computer** lets one of your AI connections (OpenAI, Anthropic or Gemini) work this PC to follow steps you
+  write, such as "1. Open Edge 2. Click Gmail in the favourites bar 3. Click Inbox 4. Read the top 10 emails 5. Give me
+  a short summary". It reads windows and web pages through Windows accessibility and clicks, types and presses keys in
+  them, without moving your mouse. It is told to only open, read and move around, never to send, delete or change
+  anything. Its result goes on the clipboard; if a step fails, a message saying which step and why goes there instead.
+  A card can also be allowed to type into windows with the real keyboard (off unless you tick it), for terminals and
+  windows without a text field, so it can run a command such as a script; it is told to type only what your steps ask for.
+  So a scheduled flow such as Use the computer → Send to ntfy puts a morning summary on your phone, or tells you where
+  it got stuck. It needs [agent-desktop](https://github.com/vercel-labs/agent-desktop) installed (by default in
+  `%USERPROFILE%\tools\agent-desktop`; the location can be changed in Settings), and it can't read apps while the PC
+  is locked. Settings → Open the log shows every action it took.
 
 A failing card stops the whole flow and the notification names it; Esc stops a running flow.
 
@@ -124,10 +135,12 @@ Needs a .NET 10 SDK and the WiX 3.14 binaries; see the header of `build.sh` for 
 
 ## Privacy
 
-RingDeck does not send information to other computers, except when you choose a slice that does:
+RingDeck does not send information to other computers, except when you choose a slice (or schedule a flow) that does:
 
 - **AI chat slices and Ask AI steps** send the text of that chat (and the clipboard picture, if you ticked that or the
   step reads it) to the AI service you set up for it, and nowhere else.
+- **Use the computer steps** send what they read in windows and web pages while they work to the AI service you set
+  up for them, and nowhere else.
 - **Web request slices** send the message you wrote (and the clipboard picture, if you ticked that) to the web service
   or address you set up for that slice, and nowhere else.
 

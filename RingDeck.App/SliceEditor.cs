@@ -638,7 +638,7 @@ public partial class EditorWindow
         KeyStep => "Key press", TextStep => "Type", PasteStep => "Paste", DelayStep => "Wait",
         LaunchStep => "Open", FocusStep => "Focus", ClipboardStep => "Clipboard", WebhookStep => "Send",
         KeyDownStep => "Key down", KeyUpStep => "Key up", ClickStep => "Click", MouseDownStep => "Mouse down",
-        MouseUpStep => "Mouse up", MouseMoveStep => "Mouse move", ScrollStep => "Scroll", ScreenshotStep => "Screenshot", AskAiStep => "Ask AI", _ => "",
+        MouseUpStep => "Mouse up", MouseMoveStep => "Mouse move", ScrollStep => "Scroll", ScreenshotStep => "Screenshot", AskAiStep => "Ask AI", ComputerStep => "Use computer", _ => "",
     };
 
     UIElement StepRow(MacroAction macro, IReadOnlyList<MacroRow> rows, int index, Action updateTotal)
@@ -733,6 +733,7 @@ public partial class EditorWindow
         switch (step)
         {
             case AskAiStep ask: AskAiForm(host, ask, rebuild); return;
+            case ComputerStep use: ComputerForm(host, use, rebuild); return;
             case WebhookStep hook: FillWebhookForm(host, hook.Request, rebuild); return;
         }
         host.Children.Add(Caption(FieldCaption(step)));
@@ -748,39 +749,15 @@ public partial class EditorWindow
         var subtle = (Brush)Application.Current.Resources["SubtleBrush"];
         TextBlock Hint(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = subtle, FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
 
-        add.Add(Caption("AI connection"));
-        var row = new DockPanel();
-        var create = new Button { Content = "New…", Margin = new Thickness(6, 0, 0, 0), ToolTip = "Set up a new AI connection" };
-        create.Click += (_, _) =>
-        {
-            var c = new AiConnection { Name = "AI " + (Config.AiConnections.Count + 1) };
-            if (!EditConnection(c)) return;
-            Config.AiConnections.Add(c);
-            ask.ConnectionId = c.Id;
-            Touch();
-            rebuild();
-        };
-        DockPanel.SetDock(create, Dock.Right);
-        row.Children.Add(create);
-        var connection = new ComboBox { ItemsSource = Config.AiConnections.ToList(), DisplayMemberPath = nameof(AiConnection.Name),
-            SelectedItem = Config.FindConnection(ask.ConnectionId) };
-        connection.SelectionChanged += (_, _) => { if (connection.SelectedItem is AiConnection c && c.Id != ask.ConnectionId) { ask.ConnectionId = c.Id; rebuild(); } };
-        row.Children.Add(connection);
-        add.Add(row);
-        if (Config.FindConnection(ask.ConnectionId) is { } chosen)
+        if (ConnectionPicker(add, ask, rebuild) is { } chosen)
             add.Add(Hint($"Model: {(chosen.Model.Trim().Length > 0 ? chosen.Model.Trim() : "not set")}. It has to read images to be asked about a picture."));
-        else
-            add.Add(new TextBlock
-            {
-                Text = Config.AiConnections.Count == 0 ? "No AI connection yet: press New… to set one up." : "Pick the connection to ask.",
-                Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
-            });
 
-        add.Add(Caption("It reads, from the clipboard"));
+        add.Add(Caption("It reads"));
         (AiReads Value, string Text)[] choices =
         {
             (AiReads.Picture, "The picture (a screenshot or a copied image)"), (AiReads.Text, "The text"),
-            (AiReads.Both, "The picture and the text"), (AiReads.Nothing, "Nothing, just the question below"),
+            (AiReads.Both, "The picture and the text"), (AiReads.ActiveWindow, "A screenshot of the window in front, taken when it runs"),
+            (AiReads.Nothing, "Nothing, just the question below"),
         };
         var group = "reads-" + Guid.NewGuid().ToString("N");
         foreach (var (value, text) in choices)
@@ -809,6 +786,38 @@ public partial class EditorWindow
                 Text = "The answer replaces what's on the clipboard, picture included. The next cards can paste it, or send it with {clipboard} in a Send to web message.",
             },
         });
+    }
+
+    /// <summary>The "AI connection" caption, a list of connections with a New… button, and a warning when none is
+    /// picked. Returns the picked connection.</summary>
+    AiConnection? ConnectionPicker(UIElementCollection add, IAiStep step, Action rebuild)
+    {
+        add.Add(Caption("AI connection"));
+        var row = new DockPanel();
+        var create = new Button { Content = "New…", Margin = new Thickness(6, 0, 0, 0), ToolTip = "Set up a new AI connection" };
+        create.Click += (_, _) =>
+        {
+            var c = new AiConnection { Name = "AI " + (Config.AiConnections.Count + 1) };
+            if (!EditConnection(c)) return;
+            Config.AiConnections.Add(c);
+            step.ConnectionId = c.Id;
+            Touch();
+            rebuild();
+        };
+        DockPanel.SetDock(create, Dock.Right);
+        row.Children.Add(create);
+        var connection = new ComboBox { ItemsSource = Config.AiConnections.ToList(), DisplayMemberPath = nameof(AiConnection.Name),
+            SelectedItem = Config.FindConnection(step.ConnectionId) };
+        connection.SelectionChanged += (_, _) => { if (connection.SelectedItem is AiConnection c && c.Id != step.ConnectionId) { step.ConnectionId = c.Id; rebuild(); } };
+        row.Children.Add(connection);
+        add.Add(row);
+        if (Config.FindConnection(step.ConnectionId) is { } chosen) return chosen;
+        add.Add(new TextBlock
+        {
+            Text = Config.AiConnections.Count == 0 ? "No AI connection yet: press New… to set one up." : "Pick the connection to use.",
+            Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+        });
+        return null;
     }
 
     const string RowFormat = "RingDeck.MacroRow";
@@ -914,7 +923,7 @@ public partial class EditorWindow
     static readonly string[] ScrollNames = { "Up", "Down", "Left", "Right" };
     static readonly string[] ScreenshotNames = { "The screen with the pointer", "All screens", "The window in front", "An area I drag out when it runs" };
 
-    static readonly string[] AiReadsNames = { "The picture on the clipboard", "The text on the clipboard", "Picture and text", "Nothing (just the instruction)" };
+    static readonly string[] AiReadsNames = { "The picture on the clipboard", "The text on the clipboard", "Picture and text", "Nothing (just the instruction)", "A screenshot of the window in front" };
 
     /// <summary>A new Ask AI step uses the first connection, if there is one.</summary>
     internal AskAiStep NewAskAi() => new() { ConnectionId = Config.AiConnections.FirstOrDefault()?.Id ?? Guid.Empty };
@@ -933,7 +942,7 @@ public partial class EditorWindow
                 Text = Config.AiConnections.Count == 0 ? "Create an AI connection first: Settings → AI connections." : "Pick the connection to ask.",
                 Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
             });
-        var reads = new ComboBox { ItemsSource = AiReadsNames, SelectedIndex = (int)ask.Reads, ToolTip = "What it sends from the clipboard" };
+        var reads = new ComboBox { ItemsSource = AiReadsNames, SelectedIndex = (int)ask.Reads, ToolTip = "What it sends: from the clipboard, or a screenshot of the window in front taken when it runs" };
         reads.SelectionChanged += (_, _) => { if (reads.SelectedIndex >= 0) ask.Reads = (AiReads)reads.SelectedIndex; };
         panel.Children.Add(Labelled("Reads", reads));
         panel.Children.Add(Labelled("Ask", Bound(new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 44,

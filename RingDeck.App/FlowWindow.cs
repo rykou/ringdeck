@@ -182,6 +182,8 @@ public sealed class FlowWindow : Window
         Item(FlowCardKind.Screenshot, "Screenshot area", "When it runs, the flow waits for you to drag out an area of the screen; that picture goes on the clipboard",
             () => Single(new ScreenshotStep { Area = ScreenshotArea.Choose }));
         Item(FlowCardKind.Ai, "Ask AI", "Asks your AI about the clipboard picture or text; the answer goes on the clipboard", () => Single(_editor.NewAskAi()));
+        Item(FlowCardKind.Computer, "Use the computer", "Your AI follows steps you write: opens apps and web pages, reads them and clicks through. The result goes on the clipboard",
+            () => Single(_editor.NewComputer()));
         Item(FlowCardKind.Focus, "Focus window", "Brings a window to the front", () => Single(new FocusStep()));
         Item(FlowCardKind.Web, "Send to web", "Discord, Slack, Teams, a phone notification, any web address", () => Single(new WebhookStep()));
         Item(FlowCardKind.Steps, "Steps", "An empty card for a list of steps", () => new FlowNode { Title = "Steps" });
@@ -202,7 +204,7 @@ public sealed class FlowWindow : Window
             if (from.Steps.Any(s => s is ScreenshotStep))
                 foreach (var web in node.Steps.OfType<WebhookStep>()) web.Request.SendImage = true;
             // ...and sending straight after Ask AI means sending its answer, which has replaced the picture.
-            if (from.Steps.Any(s => s is AskAiStep))
+            if (from.Steps.Any(s => s is AskAiStep or ComputerStep))
                 foreach (var web in node.Steps.OfType<WebhookStep>())
                 {
                     web.Request.Message = "{clipboard}";
@@ -255,6 +257,7 @@ public sealed class FlowWindow : Window
         FlowCardKind.Clipboard or FlowCardKind.Screenshot => Color.FromRgb(0x3D, 0xDC, 0x84),
         FlowCardKind.Web => Color.FromRgb(0xFF, 0x7A, 0x59),
         FlowCardKind.Ai => Color.FromRgb(0x2D, 0xD4, 0xBF),
+        FlowCardKind.Computer => Color.FromRgb(0x6E, 0xA8, 0xFF),
         _ => Color.FromRgb(0x9A, 0xA0, 0xB5),
     };
 
@@ -263,7 +266,7 @@ public sealed class FlowWindow : Window
         FlowCardKind.Start => 62982, FlowCardKind.Stop => 63275, FlowCardKind.Steps => 63074, FlowCardKind.Open => 62555,
         FlowCardKind.Type => 63504, FlowCardKind.Paste => 62166, FlowCardKind.Keys => 62649, FlowCardKind.Click => 58438,
         FlowCardKind.Move => 61801, FlowCardKind.Scroll => 61835, FlowCardKind.Wait => 63527, FlowCardKind.Clipboard => 62154,
-        FlowCardKind.Screenshot => 63118, FlowCardKind.Focus => 61022, FlowCardKind.Web => 63130, FlowCardKind.Ai => 63142, _ => 62702,
+        FlowCardKind.Screenshot => 63118, FlowCardKind.Focus => 61022, FlowCardKind.Web => 63130, FlowCardKind.Ai => 63142, FlowCardKind.Computer => 58509, _ => 62702,
     });
 
     static Color Fade(Color c, byte alpha) => Color.FromArgb(alpha, c.R, c.G, c.B);
@@ -603,6 +606,7 @@ public sealed class FlowWindow : Window
         FlowCardKind.Focus => "Brings a window to the front.",
         FlowCardKind.Web => "Sends a message, and the clipboard picture if you like, to a web service.",
         FlowCardKind.Ai => "Asks your AI about the clipboard picture or text. The answer goes on the clipboard.",
+        FlowCardKind.Computer => "Your AI follows your steps on this computer, then puts the result (or which step failed) on the clipboard.",
         _ => node.Steps.Count == 0 ? "Add steps below; they play top to bottom." : "Plays its steps top to bottom.",
     };
 

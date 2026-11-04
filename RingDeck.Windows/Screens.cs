@@ -71,6 +71,14 @@ public static class Screens
         SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(style | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE));
     }
 
+    /// <summary>Makes a window that takes clicks but never focus (clicking it leaves the window in front where it
+    /// was), hidden from Alt+Tab.</summary>
+    public static void MakeNoFocus(IntPtr hwnd)
+    {
+        var style = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(style | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE));
+    }
+
     /// <summary>Positions a square window in physical pixels. Called twice on purpose: when the first call moves the
     /// window to a monitor with a different DPI, WPF resizes it, and the second call restores the size.</summary>
     public static void Place(IntPtr hwnd, int x, int y, int size)
