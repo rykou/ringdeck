@@ -18,6 +18,12 @@ static class RenderProbe
         visual.Animator.ShowStatic(ring.Slices.Count);
         // RINGDECK_HOLD=0.6 draws the selected slice's hover wait 60% of the way.
         if (double.TryParse(Environment.GetEnvironmentVariable("RINGDECK_HOLD"), System.Globalization.CultureInfo.InvariantCulture, out var hold)) visual.HoldProgress = hold;
+        // RINGDECK_BUSY=2 draws the third slice as still running.
+        if (int.TryParse(Environment.GetEnvironmentVariable("RINGDECK_BUSY"), out var busy) && busy >= 0 && busy < ring.Slices.Count)
+        {
+            var busyId = ring.Slices[busy].Id;
+            RingVisual.IsBusy = id => id == busyId;
+        }
         if (selected >= 0)
             for (var i = 0; i < 30; i++)
                 visual.Animator.Tick(1 / 60.0, RingGeometry.SliceAngle(selected, ring.Slices.Count), selected, true, false, true);
